@@ -1,0 +1,22 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+
+# Caches
+.pytest_cache/
+
+# Project outputs
+results/
+data/
+*.zip
+AGENTS.md
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
