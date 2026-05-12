@@ -1,20 +1,20 @@
 # Cosine Similarity Distillation (CSD)
 
-A novel teacher‑free distillation method that replaces live teacher inference with compact precomputed random projection teacher fingerprints, enabling storage-efficient, high-performance knowledge transfer and enhanced student training.
+A novel teacher-free distillation method that replaces live teacher inference with compact precomputed random projection teacher fingerprints, enabling storage-efficient, high-performance knowledge transfer and enhanced student training.
 
-[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org)
+[![arXiv](https://img.shields.io/badge/arXiv-2505.XXXXX-b31b1b.svg)](https://arxiv.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-We introduce Cosine Similarity Distillation, abbreviated as **CSD**, which is a method of teacher-student model distillation that completely removes the need for live forwarding of the teacher model during student training. Instead of loading the teacher at every batch, CSD precomputes compact "fingerprints", which are the cosine similarities between the teacher's normalized intermediate feature vectors and the columns of a frozen random reference matrix. The student then regresses these fingerprints alongside the classification loss. After testing on the CIFAR-100 vision model dataset, CSD enabled distillation with **XX.X%** of KD's accuracy gain but with **67× smaller** storage.
+Cosine Similarity Distillation, abbreviated as **CSD**, is a method of teacher-student model distillation that completely removes the need for live forwarding of the teacher model during student training. Instead of loading the teacher at every batch, CSD precomputes compact "fingerprints", which are the cosine similarities between the teacher's normalized intermediate feature vectors and the columns of a frozen random reference matrix. The student then regresses these fingerprints alongside the classification loss, enabling distillation with **XX.X%** of KD's accuracy gain and **67x smaller** storage on the CIFAR-100 vision model dataset.
 
-<!-- Accuracy is calculated as (csd_per_sample_accuracy - baseline_accuracy) / (kd_accuracy - baseline_accuracy) × 100 -->
+<!-- Accuracy is calculated as (csd_per_sample_accuracy - baseline_accuracy) / (kd_accuracy - baseline_accuracy) x 100 -->
 
 This repository houses a demo of the CSD method with CIFAR-100 image classification through PyTorch. Read the CSD paper at <https://arxiv.org>.
 
 **Key contributions:**
 - First method to use a frozen random matrix as a shared coordinate system for distillation
-- Extreme storage efficiency: CIFAR-100 per-class fingerprints as small as **50 KB** (67× smaller than the teacher)
-- Teacher‑free training: teacher forwarded once, and never loaded again (vs. every batch for KD/FitNet)
+- Extreme storage efficiency: CIFAR-100 per-class fingerprints as small as **50 KB** (67x smaller than the teacher)
+- Teacher-free training: teacher forwarded once, and never loaded again (vs. every batch for KD/FitNet)
 - Privacy benefit: random projections are information-theoretically hard to invert
 
 ## Quick Start
@@ -31,18 +31,22 @@ pip install -r requirements.txt
 # Run tests (no GPU needed, ~45s)
 pytest tests/ -v
 
+# Verify storage numbers (no GPU needed)
+python storage_calcs.py
+
+# Verify all imports (no GPU needed)
+python import_checks.py
+
 # Run full pipeline (needs GPU, ~8 hours on T4)
 python main.py
 ```
-
-Alternatively, if you would like to use Google Colab (free T4 GPUs) instead of running locally, see the [Colab Guide](COLAB_GUIDE.md).
 
 ## Results
 
 | Method | Top-1 Accuracy | Storage for Transfer | Teacher Forwards |
 |--------|---------------|---------------------|-----------------|
-| Teacher (ResNet-56) | XX.X% | N/A | — |
-| Student-only (no distillation) | XX.X%  | — | 0 |
+| Teacher (ResNet-56) | XX.X% | -- | -- |
+| Student-only (no distillation) | XX.X%  | -- | 0 |
 | KD (Hinton) | XX.X%  | 3.29 MB (teacher) | 78,200 (Every batch) |
 | FitNet (feature MSE) | XX.X%  | 3.29 MB (teacher) | 234,600 (Every batch) |
 | CSD (per-sample) | XX.X%  | 24.41 MB (fingerprints) | 1 |
@@ -51,37 +55,49 @@ Alternatively, if you would like to use Google Colab (free T4 GPUs) instead of r
 ## How CSD Works
 
 ```
-R         = randn(64, r), columns L2-normalized          (frozen, no gradients)
-φ_teacher = normalize(pool(layer3(x)), dim=1) @ R        (precomputed once)
-φ_student = normalize(pool(layer3(x_aug)), dim=1) @ R    (computed per batch)
-Loss      = CE(logits, labels) + λ · MSE(φ_student, φ_teacher)
+R       = randn(64, r), columns L2-normalized              (frozen, no gradients)
+phi_T   = mean_{aug views}(normalize(pool(layer3(aug))) @ R)  (precomputed once)
+phi_S   = normalize(pool(layer3(x_aug)), dim=1) @ R           (computed per batch)
+Loss    = CE(logits, labels) + lambda * (1 - cos_sim(phi_S, phi_T))
 ```
 
-The teacher generates fingerprints from **clean** images (no augmentation). The student sees **augmented** images (RandomCrop + RandomHorizontalFlip) and learns to match the clean fingerprint to enforce augmentation invariance while transferring the teacher's representational geometry.
+The teacher generates fingerprints from the same RandomCrop + RandomHorizontalFlip
+augmentations the student sees, averaged over multiple views per image.  This ensures
+the student matches a fingerprint target it can physically achieve.  A cosine
+similarity loss focuses on directional agreement (what fingerprints encode), and
+a lambda warmup (0 for first 40 epochs) lets classification stabilize before
+fingerprint alignment begins.
 
 ## Pipeline Phases
 
 | Phase | Step | Output |
 |-------|------|--------|
 | 1 | Train teacher (ResNet-56, 200 epochs) | `best_teacher.pth` |
-| 2 | Generate fingerprints (r=128) | `all_fingerprints.pt`, `class_fingerprints.pt`, `random_matrix_R.pt` |
+| 2 | Generate augmentation-averaged fingerprints (r=128) | `all_fingerprints.pt`, `class_fingerprints.pt`, `random_matrix_R.pt` |
 | 3 | Train baselines (student-only, KD, FitNet) | `best_student_*.pth` |
 | 4 | Lambda tuning + CSD per-sample + per-class | `best_student_csd_*.pth` |
-| 5 | Ablation: r {16,32,64,128,256} and λ {0.01–1.0} | `ablation_*.json` |
+| 5 | Ablation: r {16,32,64,128,256} and lambda {0.01-1.0} | `ablation_*.json` |
 | 6 | Evaluate all models, generate plots | `*.png`, `results_summary.json` |
 | 7 | Zip results | `csd_results.zip` |
 
-Every phase is **idempotent** (safe to interrupt and resume). Checkpoints are only computed if missing.
+Every phase is **idempotent** -- safe to interrupt and resume. Checkpoints are only computed if missing.
 
 ## Architecture
 
 - **Teacher**: ResNet-56, ~862k params, ~3.29 MB
 - **Student**: ResNet-20, ~278k params, ~1.06 MB
-- **Models**: Custom `CIFARResNet` (NOT torchvision's ImageNet ResNet) with conv1 3×3 stride 1, 16 filters, **no MaxPool**, three stages: [16, 32, 64] channels
-- **Feature extraction**: After layer3, before pooling → (B, 64, 8, 8) → global avg pool → 64-d vector
-- **Random matrix R**: (64 × r), columns L2-normalized, frozen forever after generation
+- **Models**: Custom `CIFARResNet` (NOT torchvision's ImageNet ResNet) with conv1 3x3 stride 1, 16 filters, **no MaxPool**, three stages: [16, 32, 64] channels
+- **Feature extraction**: After layer3, before pooling -> (B, 64, 8, 8) -> global avg pool -> 64-d vector
+- **Random matrix R**: (64 x r), columns L2-normalized, frozen forever after generation
+- **Augmentation-averaged fingerprints**: 4 augmented views per image, averaged to produce a single target
 
-## Google Colab
+## Key improvements (v2)
+
+- **Augmentation-aware fingerprints**: teacher fingerprints use same RandomCrop + HorizontalFlip as student training, averaged over 4 views per image
+- **Cosine similarity loss**: `1 - cos_sim(phi_S, phi_T)` instead of MSE, for direction-focused alignment
+- **Lambda warmup**: linear ramp from 0 over first 40 epochs, letting classification stabilize before fingerprint matching
+
+## Google Colab / Kaggle
 
 Free Colab sessions timeout after ~4-6 hours. Run in **4 staged sessions** of ~2-3 hours each:
 
@@ -92,7 +108,7 @@ Free Colab sessions timeout after ~4-6 hours. Run in **4 staged sessions** of ~2
 | 3 | FitNet (3 betas) | ~150 min |
 | 4 | CSD + r ablation + Evaluate + Plots | ~135 min |
 
-See [COLAB_GUIDE.md](COLAB_GUIDE.md) for exact cell-by-cell Colab instructions with
+See [COLAB_GUIDE.md](COLAB_GUIDE.md) for exact cell-by-cell Colab/Kaggle instructions with
 session breakdowns, estimated timings, and Drive persistence.
 
 ## Testing
@@ -118,10 +134,11 @@ cosine-similarity-distillation/
 ├── train_student_fitnet.py    # Phase 3c: FitNet (feature MSE) baseline
 ├── train_student_csd.py       # Phase 4: core CSD training
 ├── evaluate.py                # Phase 6: results collection + table
-├── ablation.py                # Phase 5: r and λ ablation studies
+├── ablation.py                # Phase 5: r and lambda ablation studies
 ├── plot.py                    # Phase 6: 10 plots generated
 ├── storage_calcs.py           # Verifiable storage/compute numbers (no GPU needed)
 ├── import_checks.py           # Pre-push import verification for all modules
+├── COLAB_GUIDE.md             # Complete Google Colab setup and session guide
 ├── main.py                    # End-to-end orchestration (Phases 1-7)
 ├── tests/                     # 26 unit tests (no GPU needed)
 │   ├── __init__.py
@@ -130,9 +147,8 @@ cosine-similarity-distillation/
 │   ├── test_models.py         # ResNet-20/56 forward shapes, param counts, gradients
 │   ├── test_data.py           # CIFAR-100 loader shapes, indexed dataset
 │   └── test_core.py           # CSD math: fingerprints, cosine similarity, KD loss
-├── COLAB_GUIDE.md             # Complete Google Colab setup and session guide
 ├── .gitignore                 # Ignores venv/, results/, data/, *.zip, .pytest_cache/
-├── requirements.txt           # Dependencies
+├── requirements.txt
 ├── LICENSE                    # MIT License
 └── README.md
 ```
@@ -140,7 +156,10 @@ cosine-similarity-distillation/
 ## Notes
 
 - **num_workers=0**: Windows multiprocessing compatibility. Data loading is single-process.
-- **No MaxPool**: Standard CIFAR ResNet convention: a 3×3 stride-1 conv in conv1.
+- **No MaxPool**: Standard CIFAR ResNet convention -- a 3x3 stride-1 conv in conv1.
+- **Augmentation-aware fingerprints**: 4 views averaged per image (config.n_augmentations=4).
+- **Cosine loss**: `1 - cos_sim(phi_S, phi_T)` replaces MSE for direction-focused alignment.
+- **Lambda warmup**: Linear ramp from 0 over 40 epochs (config.warmup_epochs=40).
 - **Augmentations**: Train = RandomCrop(32, pad=4) + RandomHorizontalFlip + Normalize. Test = Normalize only.
 - **Learning rate**: MultiStepLR(milestones=[60, 120, 160], gamma=0.2) with initial lr=0.1.
 - **PyTorch 2.6+**: Compatible. The removed `manual_seed_all` is not used.
@@ -148,13 +167,13 @@ cosine-similarity-distillation/
 
 ## References
 
-- Hinton et al., 2015 — *Distilling the Knowledge in a Neural Network*
-- Romero et al., 2015 — *FitNets: Hints for Thin Deep Nets*
-- He et al., 2016 — *Deep Residual Learning for Image Recognition*
-- Mannix et al., 2024 — *CosPress: Cosine Similarity Preserving Distillation*
-- Zhou et al., 2024 — *TCS: Teacher‑free Coordinate System Distillation*
-- Ghojogh et al., 2021 — *Johnson‑Lindenstrauss Lemma for Dimensionality Reduction*
+- Hinton et al., 2015 -- *Distilling the Knowledge in a Neural Network*
+- Romero et al., 2015 -- *FitNets: Hints for Thin Deep Nets*
+- He et al., 2016 -- *Deep Residual Learning for Image Recognition*
+- Mannix et al., 2024 -- *CosPress: Cosine Similarity Preserving Distillation*
+- Zhou et al., 2024 -- *TCS: Teacher-free Coordinate System Distillation*
+- Ghojogh et al., 2021 -- *Johnson-Lindenstrauss Lemma for Dimensionality Reduction*
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License -- see [LICENSE](LICENSE) for details.

@@ -12,7 +12,9 @@ venv/
 results/
 data/
 *.zip
+# Agent instructions
 AGENTS.md
+STRUCTURE.md
 
 # IDE
 .idea/

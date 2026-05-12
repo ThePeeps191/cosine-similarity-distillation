@@ -1,11 +1,16 @@
-"""Train a ResNet‑20 student with Cosine Similarity Distillation (CSD).
+"""Train a ResNet-20 student with Cosine Similarity Distillation (CSD).
 
-The teacher is **never loaded**.  Instead, pre‑computed fingerprints are read from
+The teacher is **never loaded**.  Instead, pre-computed fingerprints are read from
 disk and used as regression targets alongside the classification loss:
 
-    L = CrossEntropy(logits, labels) + λ · MSE(φ_student, φ_teacher)
+    L = CrossEntropy(logits, labels) + lambda * (1 - cos_sim(phi_student, phi_teacher))
 
-Supports both per‑sample and per‑class fingerprint variants.
+Using cosine-similarity loss focuses on directional agreement (which is what
+fingerprints encode) rather than magnitude matching.  A lambda warmup gives
+the student 40 epochs of pure classification before fingerprint alignment
+begins, preventing noise in early training.
+
+Supports both per-sample and per-class fingerprint variants.
 """
 
 from __future__ import annotations
@@ -77,7 +82,7 @@ def train_epoch_csd(
             phi_t = fingerprint_lookup[indices]
 
         ce = F.cross_entropy(logits, labels)
-        distil = F.mse_loss(phi_s, phi_t)
+        distil = 1.0 - F.cosine_similarity(phi_s, phi_t, dim=1).mean()
         loss = ce + lambda_csd * distil
 
         with torch.no_grad():
@@ -187,9 +192,15 @@ def train_student_csd(
     )
 
     for epoch in range(1, epochs + 1):
+        warmup_end = min(config.warmup_epochs, epochs)
+        if epoch <= warmup_end:
+            effective_lam = lam * (epoch / warmup_end)
+        else:
+            effective_lam = lam
+
         train_loss, train_acc, fp_align = train_epoch_csd(
             student, train_loader, optimizer, config.device,
-            R_norm, fp_table, lam, use_per_class,
+            R_norm, fp_table, effective_lam, use_per_class,
         )
         _, test_acc = evaluate(student, test_loader, config.device)
         scheduler.step()
@@ -206,7 +217,7 @@ def train_student_csd(
 
         lr = optimizer.param_groups[0]["lr"]
         print(
-            f"[CSD {suffix} λ={lam}] Epoch {epoch:3d}/{epochs} | "
+            f"[CSD {suffix} λ={effective_lam:.4f}] Epoch {epoch:3d}/{epochs} | "
             f"LR: {lr:.5f} | Train Loss: {train_loss:.4f} | "
             f"Train Acc: {train_acc:.2f}% | FP Align: {fp_align:.4f} | "
             f"Test Acc: {test_acc:.2f}% | Best: {best_acc:.2f}%"

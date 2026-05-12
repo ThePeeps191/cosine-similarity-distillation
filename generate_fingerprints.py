@@ -1,11 +1,16 @@
-"""Generate cosine-similarity fingerprints for the entire CIFAR‑100 training set.
+"""Generate cosine-similarity fingerprints for the entire CIFAR-100 training set.
 
-This module implements the core CSD pre‑computation:
+This module implements the core CSD pre-computation:
     1. Load the trained teacher.
     2. Create a frozen random reference matrix **R**.
-    3. Forward every training image, pool layer‑3 features, L2‑normalise,
-       and compute φ = f_norm @ R_norm.
-    4. Save per‑sample and per‑class fingerprints, then discard the teacher.
+    3. For each training image, create N augmented views (matching student
+       augmentations), compute pooled layer-3 features, L2-normalise,
+       compute phi = f_norm @ R_norm, and average across views.
+    4. Save per-sample and per-class fingerprints, then discard the teacher.
+
+Using augmentation-averaged fingerprints ensures the student is matching
+targets it can physically observe (same RandomCrop + HorizontalFlip),
+eliminating the clean-vs-augmented mismatch from the original CSD.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ import torchvision.transforms as T
 from torch.utils.data import DataLoader
 
 from config import Config
+from data import _fingerprint_transform
 from models import resnet56
 from utils import get_tensor_size, get_model_size_mb
 
@@ -29,7 +35,13 @@ def generate_fingerprints(
     config: Config,
     r_override: Optional[int] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Pre‑compute teacher fingerprints for every training sample.
+    """Pre-compute teacher fingerprints for every training sample.
+
+    For each training image, generates N augmented views (matching the
+    student's training augmentations), computes fingerprints for each view,
+    and averages them into a single target fingerprint.  This ensures the
+    fingerprint targets are consistent with what the student sees during
+    CSD training.
 
     Args:
         config: Experiment configuration.
@@ -62,14 +74,15 @@ def generate_fingerprints(
     torch.save(R_norm.cpu(), config.random_matrix_path)
 
     # ------------------------------------------------------------------
-    # 3. Collect fingerprints (non‑shuffled loader → indices match dataset)
+    # 3. Collect augmentation-averaged fingerprints
+    #    Non-shuffled loader so index i matches dataset order.
     # ------------------------------------------------------------------
+    aug_transform = _fingerprint_transform(config)
+    N_AUG = config.n_augmentations
+
     train_set = torchvision.datasets.CIFAR100(
         root="./data", train=True, download=True,
-        transform=T.Compose([
-            T.ToTensor(),
-            T.Normalize(config.cifar_mean, config.cifar_std),
-        ]),
+        transform=None,  # raw PIL, augmentation applied manually per view
     )
     ordered_loader = DataLoader(
         train_set, batch_size=config.batch_size, shuffle=False,
@@ -79,12 +92,20 @@ def generate_fingerprints(
     all_fps: list[torch.Tensor] = []
     all_labels: list[int] = []
 
-    for images, labels in ordered_loader:
-        images = images.to(device)
-        _, features = teacher(images, return_features=True)  # (B, 64, 8, 8)
-        pooled = F.adaptive_avg_pool2d(features, (1, 1)).squeeze(-1).squeeze(-1)  # (B, 64)
-        f_norm = F.normalize(pooled, p=2, dim=1)  # unit vectors
-        phi = f_norm @ R_norm  # (B, r) — cosine similarities
+    for images_pil, labels in ordered_loader:
+        B = len(images_pil)
+        augmented_views = []
+        for img in images_pil:
+            for _ in range(N_AUG):
+                augmented_views.append(aug_transform(img))
+
+        augmented_batch = torch.stack(augmented_views).to(device)
+        _, features = teacher(augmented_batch, return_features=True)
+        pooled = F.adaptive_avg_pool2d(features, (1, 1)).squeeze(-1).squeeze(-1)
+        f_norm = F.normalize(pooled, p=2, dim=1)
+        phi = f_norm @ R_norm  # (B * N_AUG, r)
+
+        phi = phi.view(B, N_AUG, r).mean(dim=1)  # (B, r) averaged over views
         all_fps.append(phi.cpu())
         all_labels.extend(labels.tolist())
 

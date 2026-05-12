@@ -28,6 +28,21 @@ def _test_transform(config: Config) -> T.Compose:
     ])
 
 
+def _fingerprint_transform(config: Config) -> T.Compose:
+    """Augmentations used during fingerprint generation.
+
+    Must exactly match the student's training augmentations so that
+    fingerprint targets are consistent with what the student sees
+    during CSD training.  Called once per augmented view per image.
+    """
+    return T.Compose([
+        T.RandomCrop(config.image_size, padding=4),
+        T.RandomHorizontalFlip(),
+        T.ToTensor(),
+        T.Normalize(config.cifar_mean, config.cifar_std),
+    ])
+
+
 def get_cifar100_loaders(config: Config) -> tuple[DataLoader, DataLoader]:
     """Return train and test DataLoaders for CIFAR-100.
 

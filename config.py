@@ -39,6 +39,8 @@ class Config:
         # Fingerprint
         self.C: int = 64   # channels after layer 3 (before pooling)
         self.r: int = 128  # fingerprint dimension
+        self.n_augmentations: int = 4  # augmented views averaged per fingerprint
+        self.warmup_epochs: int = 40  # lambda warmup: linear ramp for first N epochs
 
         # KD hyperparameters
         self.kd_temperature: float = 4.0
