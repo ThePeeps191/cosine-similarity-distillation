@@ -22,6 +22,7 @@ import torch
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as T
+from torchvision.transforms import functional as TF
 from torch.utils.data import DataLoader
 
 from config import Config
@@ -82,7 +83,7 @@ def generate_fingerprints(
 
     train_set = torchvision.datasets.CIFAR100(
         root="./data", train=True, download=True,
-        transform=None,  # raw PIL, augmentation applied manually per view
+        transform=T.ToTensor(),  # tensor so DataLoader can batch; convert to PIL per view
     )
     ordered_loader = DataLoader(
         train_set, batch_size=config.batch_size, shuffle=False,
@@ -92,12 +93,13 @@ def generate_fingerprints(
     all_fps: list[torch.Tensor] = []
     all_labels: list[int] = []
 
-    for images_pil, labels in ordered_loader:
-        B = len(images_pil)
+    for images, labels in ordered_loader:
+        B = len(images)
         augmented_views = []
-        for img in images_pil:
+        for i in range(B):
+            img_pil = TF.to_pil_image(images[i])
             for _ in range(N_AUG):
-                augmented_views.append(aug_transform(img))
+                augmented_views.append(aug_transform(img_pil))
 
         augmented_batch = torch.stack(augmented_views).to(device)
         _, features = teacher(augmented_batch, return_features=True)
