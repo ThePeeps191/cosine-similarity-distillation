@@ -28,6 +28,7 @@ class Config:
         # Student (shared across methods)
         self.epochs_student: int = 200
         self.epochs_ablation: int = 100  # shorter runs for hyper-parameter sweeps (one LR drop at 60 + 40 epochs at lr=0.02)
+        self.epochs_lambda_ablation: int = 200  # lambda ablation runs full length to match real CSD training
 
         # Optimisation
         self.lr: float = 0.1
@@ -42,6 +43,8 @@ class Config:
         self.n_augmentations: int = 8  # augmented views averaged per fingerprint
         self.warmup_epochs: int = 40  # lambda warmup: linear ramp for first N epochs
         self.use_multi_layer: bool = True  # if True, fingerprint layer2 (32-d) + layer3 (64-d)
+        self.lambda_l2_weight: float = 0.2  # layer-2 (texture) gets smaller fingerprint weight
+        self.lambda_l3_weight: float = 1.0  # layer-3 (object) gets full fingerprint weight
 
         # KD hyperparameters
         self.kd_temperature: float = 4.0

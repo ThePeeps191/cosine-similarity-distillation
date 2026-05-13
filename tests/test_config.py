@@ -33,7 +33,10 @@ def test_config_defaults():
     assert c.r == 128
     assert c.n_augmentations == 8
     assert c.warmup_epochs == 40
-    assert c.use_multi_layer == True
+    assert c.use_multi_layer is True
+    assert c.lambda_l2_weight == 0.2
+    assert c.lambda_l3_weight == 1.0
+    assert c.epochs_lambda_ablation == 200
     assert c.kd_temperature == 4.0
     assert c.kd_alpha == 0.9
     assert len(c.fitnet_beta_values) == 3

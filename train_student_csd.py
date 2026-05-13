@@ -45,6 +45,8 @@ def train_epoch_csd(
     multi_layer: bool = True,
     R2_norm: torch.Tensor | None = None,
     fp_lookup_l2: torch.Tensor | None = None,
+    l2_weight: float = 0.2,
+    l3_weight: float = 1.0,
 ) -> tuple[float, float, float]:
     """Single training epoch for CSD.
 
@@ -54,6 +56,8 @@ def train_epoch_csd(
         R2_norm: Layer-2 random reference matrix (32, r), None if single-layer.
         fp_lookup_l2: Layer-2 fingerprint table, None if single-layer.
         multi_layer: If True, compute combined loss from both layers.
+        l2_weight: Weight for layer-2 fingerprint loss (default 0.2).
+        l3_weight: Weight for layer-3 fingerprint loss (default 1.0).
 
     Returns:
         (average_loss, accuracy_percent, mean_fingerprint_cosine_similarity)
@@ -94,7 +98,7 @@ def train_epoch_csd(
 
             distil_l2 = 1.0 - F.cosine_similarity(phi_S_l2, phi_T_l2, dim=1).mean()
             distil_l3 = 1.0 - F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean()
-            distil = distil_l2 + distil_l3
+            distil = l2_weight * distil_l2 + l3_weight * distil_l3
 
             with torch.no_grad():
                 sim_l2 = F.cosine_similarity(phi_S_l2, phi_T_l2, dim=1).mean().item()
@@ -245,6 +249,7 @@ def train_student_csd(
             student, train_loader, optimizer, config.device,
             R3_norm, fp_lookup_l3, effective_lam, use_per_class,
             multi_layer=multi, R2_norm=R2_norm, fp_lookup_l2=fp_lookup_l2,
+            l2_weight=config.lambda_l2_weight, l3_weight=config.lambda_l3_weight,
         )
         _, test_acc = evaluate(student, test_loader, config.device)
         scheduler.step()

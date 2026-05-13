@@ -63,7 +63,7 @@ def run_lambda_ablation(config: Config) -> list[dict[str, Any]]:
 
         history = train_student_csd(
             config, use_per_class=False, lambda_csd=lam,
-            epochs_override=config.epochs_ablation, save_outputs=False,
+            epochs_override=config.epochs_lambda_ablation, save_outputs=False,
         )
         results.append({"lambda": lam, "accuracy": history["best_acc"]})
 
