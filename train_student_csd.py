@@ -3,12 +3,13 @@
 The teacher is **never loaded**.  Instead, pre-computed fingerprints are read from
 disk and used as regression targets alongside the classification loss:
 
-    L = CrossEntropy(logits, labels) + lambda * (1 - cos_sim(phi_student, phi_teacher))
+    L = CrossEntropy(logits, labels)
+        + lambda * (1 - cos_sim(phi_S_l2, phi_T_l2) + 1 - cos_sim(phi_S_l3, phi_T_l3))
 
-Using cosine-similarity loss focuses on directional agreement (which is what
-fingerprints encode) rather than magnitude matching.  A lambda warmup gives
-the student 40 epochs of pure classification before fingerprint alignment
-begins, preventing noise in early training.
+Uses multi-layer fingerprints (layer-2 + layer-3) to capture complementary
+teacher geometry at texture and abstraction levels.  Cosine-similarity loss
+focuses on directional agreement, and a lambda warmup lets early classification
+stabilise before fingerprint alignment begins.
 
 Supports both per-sample and per-class fingerprint variants.
 """
@@ -37,18 +38,22 @@ def train_epoch_csd(
     loader: DataLoader,
     optimizer: optim.Optimizer,
     device: torch.device,
-    R_norm: torch.Tensor,
-    fingerprint_lookup: torch.Tensor,
+    R3_norm: torch.Tensor,
+    fp_lookup_l3: torch.Tensor,
     lambda_csd: float,
     use_per_class: bool,
+    multi_layer: bool = True,
+    R2_norm: torch.Tensor | None = None,
+    fp_lookup_l2: torch.Tensor | None = None,
 ) -> tuple[float, float, float]:
     """Single training epoch for CSD.
 
     Args:
-        fingerprint_lookup:
-            - Per-sample: (50000, r) tensor indexed by dataset index.
-            - Per-class: (100, r) tensor indexed by class label.
-        use_per_class: If True, *fingerprint_lookup* is per-class.
+        R3_norm: Layer-3 random reference matrix (64, r).
+        fp_lookup_l3: Layer-3 fingerprint table.
+        R2_norm: Layer-2 random reference matrix (32, r), None if single-layer.
+        fp_lookup_l2: Layer-2 fingerprint table, None if single-layer.
+        multi_layer: If True, compute combined loss from both layers.
 
     Returns:
         (average_loss, accuracy_percent, mean_fingerprint_cosine_similarity)
@@ -70,23 +75,50 @@ def train_epoch_csd(
             )
 
         optimizer.zero_grad()
-        logits, features = student(images, return_features=True)
 
-        pooled = F.adaptive_avg_pool2d(features, (1, 1)).squeeze(-1).squeeze(-1)
-        f_norm = F.normalize(pooled, p=2, dim=1)
-        phi_s = f_norm @ R_norm  # (B, r)
+        if multi_layer:
+            logits, feat_l2, feat_l3 = student(images, return_features="multi")
+            pooled_l2 = F.adaptive_avg_pool2d(feat_l2, (1, 1)).squeeze(-1).squeeze(-1)
+            pooled_l3 = F.adaptive_avg_pool2d(feat_l3, (1, 1)).squeeze(-1).squeeze(-1)
+            f_norm_l2 = F.normalize(pooled_l2, p=2, dim=1)
+            f_norm_l3 = F.normalize(pooled_l3, p=2, dim=1)
+            phi_S_l2 = f_norm_l2 @ R2_norm  # (B, r)
+            phi_S_l3 = f_norm_l3 @ R3_norm  # (B, r)
 
-        if use_per_class:
-            phi_t = fingerprint_lookup[labels]
+            if use_per_class:
+                phi_T_l2 = fp_lookup_l2[labels]
+                phi_T_l3 = fp_lookup_l3[labels]
+            else:
+                phi_T_l2 = fp_lookup_l2[indices]
+                phi_T_l3 = fp_lookup_l3[indices]
+
+            distil_l2 = 1.0 - F.cosine_similarity(phi_S_l2, phi_T_l2, dim=1).mean()
+            distil_l3 = 1.0 - F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean()
+            distil = distil_l2 + distil_l3
+
+            with torch.no_grad():
+                sim_l2 = F.cosine_similarity(phi_S_l2, phi_T_l2, dim=1).mean().item()
+                sim_l3 = F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean().item()
+                batch_fp_sim = (sim_l2 + sim_l3) / 2.0
         else:
-            phi_t = fingerprint_lookup[indices]
+            logits, features = student(images, return_features=True)
+            pooled = F.adaptive_avg_pool2d(features, (1, 1)).squeeze(-1).squeeze(-1)
+            f_norm = F.normalize(pooled, p=2, dim=1)
+            phi_S_l3 = f_norm @ R3_norm  # (B, r)
+
+            if use_per_class:
+                phi_T_l3 = fp_lookup_l3[labels]
+            else:
+                phi_T_l3 = fp_lookup_l3[indices]
+
+            distil = 1.0 - F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean()
+
+            with torch.no_grad():
+                batch_fp_sim = F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean().item()
 
         ce = F.cross_entropy(logits, labels)
-        distil = 1.0 - F.cosine_similarity(phi_s, phi_t, dim=1).mean()
         loss = ce + lambda_csd * distil
 
-        with torch.no_grad():
-            batch_fp_sim = F.cosine_similarity(phi_s, phi_t, dim=1).mean().item()
         running_fp_sim += batch_fp_sim * images.size(0)
         fp_count += images.size(0)
 
@@ -128,11 +160,11 @@ def train_student_csd(
     epochs_override: Optional[int] = None,
     save_outputs: bool = True,
 ) -> dict[str, Any]:
-    """Train ResNet‑20 with Cosine Similarity Distillation.
+    """Train ResNet-20 with Cosine Similarity Distillation.
 
     Args:
         config: Experiment configuration.
-        use_per_class: If True, use per‑class averaged fingerprints.
+        use_per_class: If True, use per-class averaged fingerprints.
         lambda_csd: CSD loss weight; defaults to 0.1.
         r_override: Override fingerprint dimension (for ablation).
         epochs_override: Override number of training epochs.
@@ -146,26 +178,37 @@ def train_student_csd(
     r = r_override if r_override is not None else config.r
     lam = lambda_csd if lambda_csd is not None else 0.1
     epochs = epochs_override if epochs_override is not None else config.epochs_student
+    multi = config.use_multi_layer
 
     # ------------------------------------------------------------------
-    # Load reference matrix and fingerprints
+    # Load reference matrices and fingerprints
     # ------------------------------------------------------------------
-    R_norm = torch.load(config.random_matrix_path, map_location="cpu")
-    R_norm = R_norm.to(config.device)
+    R3_norm = torch.load(config.random_matrix_path, map_location="cpu")
+    R3_norm = R3_norm.to(config.device)
+
+    R2_norm = None
+    fp_lookup_l2 = None
+    if multi:
+        R2_norm = torch.load("results/random_matrix_R2.pt", map_location="cpu")
+        R2_norm = R2_norm.to(config.device)
 
     if use_per_class:
-        fp_table = torch.load(config.class_fingerprints_path, map_location="cpu")
-        fp_table = fp_table.to(config.device)
+        fp_lookup_l3 = torch.load(config.class_fingerprints_path, map_location="cpu")
+        fp_lookup_l3 = fp_lookup_l3.to(config.device)
+        if multi:
+            fp_lookup_l2 = torch.load("results/class_fingerprints_l2.pt", map_location="cpu")
+            fp_lookup_l2 = fp_lookup_l2.to(config.device)
         train_loader, test_loader = get_cifar100_loaders(config)
     else:
-        fp_table = torch.load(config.all_fingerprints_path, map_location="cpu")
-        fp_table = fp_table.to(config.device)
+        fp_lookup_l3 = torch.load(config.all_fingerprints_path, map_location="cpu")
+        fp_lookup_l3 = fp_lookup_l3.to(config.device)
+        if multi:
+            fp_lookup_l2 = torch.load("results/all_fingerprints_l2.pt", map_location="cpu")
+            fp_lookup_l2 = fp_lookup_l2.to(config.device)
         train_loader, test_loader = get_indexed_cifar100_loaders(config)
 
-    assert R_norm.shape[1] == fp_table.shape[1] == r, \
-        f"Dimension mismatch: R_norm={R_norm.shape[1]}, fp={fp_table.shape[1]}, r={r}"
-
-    # fp_table stays on GPU — direct indexing, no per-batch transfers
+    assert R3_norm.shape[1] == fp_lookup_l3.shape[1] == r, \
+        f"Dimension mismatch: R3={R3_norm.shape[1]}, fp={fp_lookup_l3.shape[1]}, r={r}"
 
     # ------------------------------------------------------------------
     # Build student
@@ -200,7 +243,8 @@ def train_student_csd(
 
         train_loss, train_acc, fp_align = train_epoch_csd(
             student, train_loader, optimizer, config.device,
-            R_norm, fp_table, effective_lam, use_per_class,
+            R3_norm, fp_lookup_l3, effective_lam, use_per_class,
+            multi_layer=multi, R2_norm=R2_norm, fp_lookup_l2=fp_lookup_l2,
         )
         _, test_acc = evaluate(student, test_loader, config.device)
         scheduler.step()

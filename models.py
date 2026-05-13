@@ -84,29 +84,31 @@ class CIFARResNet(nn.Module):
 
     def forward(
         self, x: torch.Tensor, return_features: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass.
 
         Args:
             x: Input tensor of shape (B, 3, 32, 32).
-            return_features: If True, also return the feature maps after
-                ``layer3`` (before pooling), shape (B, 64, 8, 8).
+            return_features: If True, return ``(logits, layer3_features)``
+                with shape (B, 64, 8, 8).  If ``"multi"``, return
+                ``(logits, layer2_features, layer3_features)``.
 
         Returns:
-            Logits of shape (B, num_classes), or a tuple ``(logits, features)``
-            when *return_features* is True.
+            Logits of shape (B, num_classes), or a tuple with features
+            when *return_features* is set.
         """
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        features = out  # (B, 64, 8, 8)
-        out = self.avgpool(out)
+        l2_out = self.layer2(out)    # (B, 32, 16, 16)
+        l3_out = self.layer3(l2_out)  # (B, 64, 8, 8)
+        out = self.avgpool(l3_out)
         out = out.view(out.size(0), -1)
         logits = self.fc(out)
 
         if return_features:
-            return logits, features
+            if isinstance(return_features, str) and return_features == "multi":
+                return logits, l2_out, l3_out
+            return logits, l3_out
         return logits
 
 
