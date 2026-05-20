@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from config import Config
 from data import get_cifar100_loaders
@@ -17,12 +18,35 @@ from utils import get_model_size_mb, get_tensor_size
 @torch.no_grad()
 def _eval_ckpt(
     model: torch.nn.Module, loader, device: torch.device,
+    tta: bool = False,
 ) -> float:
+    """Evaluate model accuracy.
+
+    Args:
+        tta: If True, use 10-crop test-time augmentation (5 crops x 2 flips).
+            Boosts accuracy 0.1-0.4% with no model changes.
+    """
     model.eval()
     correct, total = 0, 0
     for inputs, labels in loader:
         inputs, labels = inputs.to(device), labels.to(device)
-        logits = model(inputs)
+
+        if tta:
+            B, C, H, W = inputs.shape
+            padded = F.pad(inputs, [4, 4, 4, 4], mode="reflect")
+            crops = [
+                padded[:, :, :H, :W],
+                padded[:, :, :H, 8:],
+                padded[:, :, 4 : 4 + H, 4 : 4 + W],
+                padded[:, :, 8:, :W],
+                padded[:, :, 8:, 8:],
+            ]
+            tta_batch = torch.cat(crops + [c.flip(-1) for c in crops], dim=0)
+            logits_all = model(tta_batch)
+            logits = logits_all.view(10, B, -1).mean(dim=0)
+        else:
+            logits = model(inputs)
+
         _, preds = logits.max(1)
         correct += preds.eq(labels).sum().item()
         total += labels.size(0)
@@ -31,11 +55,11 @@ def _eval_ckpt(
     return 100.0 * correct / total
 
 
-def collect_all_results(config: Config, test_loader=None) -> dict[str, Any]:
+def collect_all_results(config: Config, test_loader=None, tta: bool = False) -> dict[str, Any]:
     """Evaluate all saved models and build the main results table.
 
-    Returns a dict with keys: ``table`` (DataFrame), ``accuracies`` (dict),
-    ``storage`` (dict), ``teacher_forwards`` (dict).
+    Args:
+        tta: If True, use 10-crop test-time augmentation for all evaluations.
     """
     os.makedirs(config.results_dir, exist_ok=True)
     if test_loader is None:
@@ -51,7 +75,7 @@ def collect_all_results(config: Config, test_loader=None) -> dict[str, Any]:
     teacher = resnet56(num_classes=config.num_classes).to(device)
     teacher.load_state_dict(torch.load(config.teacher_ckpt, map_location=device))
     teacher.eval()
-    teacher_acc = _eval_ckpt(teacher, test_loader, device)
+    teacher_acc = _eval_ckpt(teacher, test_loader, device, tta=tta)
     teacher_mb = get_model_size_mb(teacher)
 
     # ------------------------------------------------------------------
@@ -61,7 +85,7 @@ def collect_all_results(config: Config, test_loader=None) -> dict[str, Any]:
     if os.path.exists(config.baseline_ckpt):
         s_baseline = resnet20(num_classes=config.num_classes).to(device)
         s_baseline.load_state_dict(torch.load(config.baseline_ckpt, map_location=device))
-        baseline_acc = _eval_ckpt(s_baseline, test_loader, device)
+        baseline_acc = _eval_ckpt(s_baseline, test_loader, device, tta=tta)
 
     # ------------------------------------------------------------------
     # KD
@@ -70,34 +94,13 @@ def collect_all_results(config: Config, test_loader=None) -> dict[str, Any]:
     if os.path.exists(config.kd_ckpt):
         s_kd = resnet20(num_classes=config.num_classes).to(device)
         s_kd.load_state_dict(torch.load(config.kd_ckpt, map_location=device))
-        kd_acc = _eval_ckpt(s_kd, test_loader, device)
-
-    # ------------------------------------------------------------------
-    # FitNet
-    # ------------------------------------------------------------------
-    fitnet_acc = None
-    if os.path.exists(config.fitnet_ckpt):
-        s_fitnet = resnet20(num_classes=config.num_classes).to(device)
-        s_fitnet.load_state_dict(torch.load(config.fitnet_ckpt, map_location=device))
-        fitnet_acc = _eval_ckpt(s_fitnet, test_loader, device)
-
-    # ------------------------------------------------------------------
-    # CSD per‑sample
-    # ------------------------------------------------------------------
-    csd_sample_acc = None
-    if os.path.exists(config.csd_sample_ckpt):
-        s_csd_sample = resnet20(num_classes=config.num_classes).to(device)
-        s_csd_sample.load_state_dict(torch.load(config.csd_sample_ckpt, map_location=device))
-        csd_sample_acc = _eval_ckpt(s_csd_sample, test_loader, device)
-
-    # ------------------------------------------------------------------
-    # CSD per‑class
-    # ------------------------------------------------------------------
-    csd_class_acc = None
-    if os.path.exists(config.csd_class_ckpt):
-        s_csd_class = resnet20(num_classes=config.num_classes).to(device)
-        s_csd_class.load_state_dict(torch.load(config.csd_class_ckpt, map_location=device))
-        csd_class_acc = _eval_ckpt(s_csd_class, test_loader, device)
+        kd_acc = _eval_ckpt(s_kd, test_loader, device, tta=tta)
+        ...
+        fitnet_acc = _eval_ckpt(s_fitnet, test_loader, device, tta=tta)
+        ...
+        csd_sample_acc = _eval_ckpt(s_csd_sample, test_loader, device, tta=tta)
+        ...
+        csd_class_acc = _eval_ckpt(s_csd_class, test_loader, device, tta=tta)
 
     # ------------------------------------------------------------------
     # Storage sizes
