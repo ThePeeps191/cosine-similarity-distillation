@@ -16,6 +16,17 @@ data/
 AGENTS.md
 STRUCTURE.md
 
+# Paper files
+*.tex
+*.bib
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+
 # IDE
 .idea/
 .vscode/
