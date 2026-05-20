@@ -95,11 +95,32 @@ def collect_all_results(config: Config, test_loader=None, tta: bool = False) -> 
         s_kd = resnet20(num_classes=config.num_classes).to(device)
         s_kd.load_state_dict(torch.load(config.kd_ckpt, map_location=device))
         kd_acc = _eval_ckpt(s_kd, test_loader, device, tta=tta)
-        ...
+
+    # ------------------------------------------------------------------
+    # FitNet
+    # ------------------------------------------------------------------
+    fitnet_acc = None
+    if os.path.exists(config.fitnet_ckpt):
+        s_fitnet = resnet20(num_classes=config.num_classes).to(device)
+        s_fitnet.load_state_dict(torch.load(config.fitnet_ckpt, map_location=device))
         fitnet_acc = _eval_ckpt(s_fitnet, test_loader, device, tta=tta)
-        ...
+
+    # ------------------------------------------------------------------
+    # CSD per‑sample
+    # ------------------------------------------------------------------
+    csd_sample_acc = None
+    if os.path.exists(config.csd_sample_ckpt):
+        s_csd_sample = resnet20(num_classes=config.num_classes).to(device)
+        s_csd_sample.load_state_dict(torch.load(config.csd_sample_ckpt, map_location=device))
         csd_sample_acc = _eval_ckpt(s_csd_sample, test_loader, device, tta=tta)
-        ...
+
+    # ------------------------------------------------------------------
+    # CSD per‑class
+    # ------------------------------------------------------------------
+    csd_class_acc = None
+    if os.path.exists(config.csd_class_ckpt):
+        s_csd_class = resnet20(num_classes=config.num_classes).to(device)
+        s_csd_class.load_state_dict(torch.load(config.csd_class_ckpt, map_location=device))
         csd_class_acc = _eval_ckpt(s_csd_class, test_loader, device, tta=tta)
 
     # ------------------------------------------------------------------
