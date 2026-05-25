@@ -45,6 +45,9 @@ class Config:
         self.use_multi_layer: bool = True  # if True, fingerprint layer2 (32-d) + layer3 (64-d)
         self.lambda_l2_weight: float = 0.2  # layer-2 (texture) gets smaller fingerprint weight
         self.lambda_l3_weight: float = 1.0  # layer-3 (object) gets full fingerprint weight
+        self.use_contrastive: bool = True  # if True, add hard-negative push to per-class loss
+        self.contrastive_margin: float = 0.3  # push activates when wrong-class similarity exceeds this
+        self.contrastive_push_weight: float = 0.3  # weight of push term relative to pull term
 
         # KD hyperparameters
         self.kd_temperature: float = 4.0

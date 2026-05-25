@@ -162,6 +162,7 @@ def plot_tsne(
     baseline_model_path: str,
     csd_model_path: str,
     test_loader: DataLoader,
+    csd_label: str = "CSD Student (per-sample)",
 ) -> None:
     try:
         from sklearn.manifold import TSNE
@@ -218,7 +219,7 @@ def plot_tsne(
 
     sc2 = ax2.scatter(e_csd[:, 0], e_csd[:, 1], c=l_csd[idx],
                       cmap="tab20", alpha=0.6, s=8)
-    ax2.set_title("CSD Student (per‑sample)")
+    ax2.set_title(csd_label)
     ax2.axis("off")
 
     plt.suptitle("t‑SNE of Pooled Layer‑3 Features (CIFAR‑100 test subset)", fontweight="bold")

@@ -47,6 +47,9 @@ def train_epoch_csd(
     fp_lookup_l2: torch.Tensor | None = None,
     l2_weight: float = 0.2,
     l3_weight: float = 1.0,
+    use_contrastive: bool = True,
+    margin: float = 0.3,
+    push_weight: float = 0.3,
 ) -> tuple[float, float, float]:
     """Single training epoch for CSD.
 
@@ -58,6 +61,9 @@ def train_epoch_csd(
         multi_layer: If True, compute combined loss from both layers.
         l2_weight: Weight for layer-2 fingerprint loss (default 0.2).
         l3_weight: Weight for layer-3 fingerprint loss (default 1.0).
+        use_contrastive: If True, push away from hardest-negative class fingerprints.
+        margin: Contrastive margin threshold (default 0.3).
+        push_weight: Weight of push term relative to pull (default 0.3).
 
     Returns:
         (average_loss, accuracy_percent, mean_fingerprint_cosine_similarity)
@@ -98,6 +104,21 @@ def train_epoch_csd(
 
             distil_l2 = 1.0 - F.cosine_similarity(phi_S_l2, phi_T_l2, dim=1).mean()
             distil_l3 = 1.0 - F.cosine_similarity(phi_S_l3, phi_T_l3, dim=1).mean()
+
+            # Contrastive push: penalise similarity to hardest-negative class
+            if use_contrastive and use_per_class:
+                sim_all_l2 = phi_S_l2 @ fp_lookup_l2.T    # (B, 100)
+                sim_all_l3 = phi_S_l3 @ fp_lookup_l3.T    # (B, 100)
+                lab_1d = labels.unsqueeze(1)
+                sim_all_l2.scatter_(1, lab_1d, -1.0)
+                sim_all_l3.scatter_(1, lab_1d, -1.0)
+                hardest_l2 = sim_all_l2.max(dim=1).values   # (B,)
+                hardest_l3 = sim_all_l3.max(dim=1).values
+                push_l2 = F.relu(hardest_l2 - margin).mean()
+                push_l3 = F.relu(hardest_l3 - margin).mean()
+                distil_l2 = distil_l2 + push_weight * push_l2
+                distil_l3 = distil_l3 + push_weight * push_l3
+
             distil = l2_weight * distil_l2 + l3_weight * distil_l3
 
             with torch.no_grad():
@@ -250,6 +271,9 @@ def train_student_csd(
             R3_norm, fp_lookup_l3, effective_lam, use_per_class,
             multi_layer=multi, R2_norm=R2_norm, fp_lookup_l2=fp_lookup_l2,
             l2_weight=config.lambda_l2_weight, l3_weight=config.lambda_l3_weight,
+            use_contrastive=config.use_contrastive,
+            margin=config.contrastive_margin,
+            push_weight=config.contrastive_push_weight,
         )
         _, test_acc = evaluate(student, test_loader, config.device)
         scheduler.step()
