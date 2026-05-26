@@ -379,12 +379,12 @@ Cell E   → Evaluate + all plots + zip + download (Phase 6-7)
 
 | Method | Top-1 Accuracy | Storage for Transfer | Teacher Forwards |
 |--------|---------------|---------------------|-----------------|
-| Teacher (ResNet-56) | XX.X% | N/A | — |
-| Student-only (no distillation) | XX.X%  | — | 0 |
-| KD (Hinton) | XX.X%  | 3.29 MB (teacher) | 78,200 (Every batch) |
-| FitNet (feature MSE) | XX.X%  | 3.29 MB (teacher) | 234,600 (Every batch) |
-| CSD (per-sample) | XX.X%  | 24.41 MB (fingerprints) | 1 |
-| CSD (per-class) | XX.X%  | 50 KB (fingerprints) | 1 |
+| Teacher (ResNet-56) | 72.61% | N/A | -- |
+| Student-only (no distillation) | 68.77%  | -- | 0 |
+| KD (Hinton) | 70.57%  | 3.29 MB (teacher) | 78,200 (Every batch) |
+| FitNet (feature MSE) | 70.83%  | 3.29 MB (teacher) | 234,600 (Every batch) |
+| CSD (per-sample) | 69.17%  | 24.41 MB (fingerprints) | 1 |
+| CSD (per-class) | **69.65%**  | **50 KB** (fingerprints) | **1** |
 
 ---
 
