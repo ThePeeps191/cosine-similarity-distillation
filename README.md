@@ -105,7 +105,11 @@ Every phase is **idempotent** -- safe to interrupt and resume. Checkpoints are o
 
 ## Google Colab / Kaggle
 
-Free Colab sessions timeout after ~4-6 hours. The full pipeline runs across multiple sessions with checkpoint persistence. See [COLAB_GUIDE.md](COLAB_GUIDE.md) for detailed cell-by-cell instructions.
+You can run the full pipeline on Google Colab (free T4 GPU, ~4-6 hour session limit) or
+Kaggle (30 hours/week GPU quota, 12-hour session limit) using the same `python main.py`
+command.  Kaggle supports longer uninterrupted runs; Colab requires staging across multiple
+sessions with Google Drive persistence.  The checkpoint skip logic in `main.py` handles
+resumption automatically.
 
 ## Testing
 
@@ -134,7 +138,6 @@ cosine-similarity-distillation/
 ├── plot.py                    # Phase 6: 10 plots generated
 ├── storage_calcs.py           # Verifiable storage/compute numbers (no GPU needed)
 ├── import_checks.py           # Pre-push import verification for all modules
-├── COLAB_GUIDE.md             # Complete Google Colab setup and session guide
 ├── main.py                    # End-to-end orchestration (Phases 1-7)
 ├── tests/                     # 26 unit tests (no GPU needed)
 │   ├── __init__.py
