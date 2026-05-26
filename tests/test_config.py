@@ -36,7 +36,7 @@ def test_config_defaults():
     assert c.use_multi_layer is True
     assert c.lambda_l2_weight == 0.2
     assert c.lambda_l3_weight == 1.0
-    assert c.use_contrastive is True
+    assert c.use_contrastive is False
     assert c.contrastive_margin == 0.3
     assert c.contrastive_push_weight == 0.3
     assert c.epochs_lambda_ablation == 200
