@@ -145,14 +145,24 @@ trained with per-sample's lambda (0.01) — this was fixed in v4.1.
 | KD (Hinton) | 70.57% | 3.29 MB | 78,200 |
 | FitNet | 70.83% | 3.29 MB | 234,600 |
 | **CSD per-sample** | **69.17%** | **24.41 MB** | **1** |
-| **CSD per-class** | **69.65%** | **50 KB** | **1** |
+| **CSD per-class** | **69.65%** | **50 KB** | **1** (precomputation) |
 
 **Key metrics:**
 - CSD per-class recovers 48.9% of KD's accuracy gain (+0.88% over baseline
   vs KD's +1.80%)
 - 67x storage reduction (50 KB vs 3.29 MB teacher)
-- 78,200x fewer teacher forwards (1 vs 78,200)
+- 78,200x fewer teacher loading events (1 vs 78,200)
 - FP Align reaches 0.89 during training
+
+> **On "1 teacher forward":** The teacher model is loaded from disk once during
+> fingerprint precomputation.  Within that single loading, each training image is
+> forwarded 8 times (one per augmented view), totalling 400k forward passes for
+> the full 50k-image dataset.  This takes ~3 minutes.  The teacher is never loaded
+> again during student training (200 epochs, ~8 hours).  In contrast, KD loads
+> the teacher every batch across 200 epochs — 200 separate loading events,
+> totalling 78,200 forward passes.  CSD's single loading event is the relevant
+> comparison: the teacher is absent during the entire computationally intensive
+> training phase.
 
 ---
 

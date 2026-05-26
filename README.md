@@ -47,10 +47,16 @@ python main.py
 |--------|---------------|---------------------|-----------------|
 | Teacher (ResNet-56) | 72.61% | -- | -- |
 | Student-only (no distillation) | 68.77%  | -- | 0 |
-| KD (Hinton) | 70.57%  | 3.29 MB (teacher) | 78,200 (Every batch) |
-| FitNet (feature MSE) | 70.83%  | 3.29 MB (teacher) | 234,600 (Every batch) |
-| CSD (per-sample) | 69.17%  | 24.41 MB (fingerprints) | 1 |
-| CSD (per-class) | **69.65%**  | **50 KB** (fingerprints) | **1** |
+| KD (Hinton) | 70.57%  | 3.29 MB (teacher) | 78,200 (loads teacher every batch) |
+| FitNet (feature MSE) | 70.83%  | 3.29 MB (teacher) | 234,600 (loads teacher every batch) |
+| CSD (per-sample) | 69.17%  | 24.41 MB (fingerprints) | 1 (precomputation only) |
+| CSD (per-class) | **69.65%**  | **50 KB** (fingerprints) | **1** (precomputation only) |
+
+> **Note on teacher forwards:** The teacher is loaded from disk once for
+> fingerprint precomputation (50k images x 8 augmented views = ~3 minutes).
+> It is never loaded again during student training (~8 hours).  KD loads
+> the teacher 200 separate times (once per epoch), totalling 78,200 forward
+> passes.
 
 All accuracies include test-time augmentation (10-crop, TTA).
 
