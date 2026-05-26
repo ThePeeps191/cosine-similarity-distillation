@@ -12,13 +12,14 @@ venv/
 results/
 data/
 *.zip
+
 # Agent instructions
 AGENTS.md
 STRUCTURE.md
 
-# Paper files
-*.tex
-*.bib
+# LaTeX paper source files - allow .tex and .bib, ignore build outputs
+# *.tex   <- REMOVED: now track your template.tex
+# *.bib   <- REMOVED: now track your references.bib
 *.aux
 *.bbl
 *.blg
@@ -26,6 +27,13 @@ STRUCTURE.md
 *.out
 *.toc
 *.synctex.gz
+*.fdb_latexmk
+*.fls
+# *.pdf       # Optional: ignore compiled PDF (or remove if you want to track it)
+
+# LaTeX build directory (from VS Code LaTeX Workshop)
+paper/build/
+build/
 
 # IDE
 .idea/

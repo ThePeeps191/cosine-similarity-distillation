@@ -1,0 +1,227 @@
+\documentclass{article}
+
+
+
+\usepackage{arxiv}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{lipsum}		% Can be removed after putting your text content
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage{doi}
+
+
+
+\title{Cosine Similarity Distillation: Teacher-Free Knowledge Transfer via Random Projection Fingerprints}
+
+\date{May 10, 2026}
+
+\author{Danny Wang \\
+	Sir Winston Churchill High School\\
+	Calgary, Canada \\
+	\href{mailto:dannywang930@gmail.com}{\texttt{dannywang930@gmail.com}} \\
+	\href{https://dannywang.dev}{\texttt{dannywang.dev}}
+	\\
+}
+
+% Uncomment to remove the date
+%\date{}
+
+% Uncomment to override  the `A preprint' in the header
+\renewcommand{\headeright}{Independent Research}
+\renewcommand{\undertitle}{Independent Research}
+\renewcommand{\shorttitle}{CSD: Teacher-Free Distillation with Random Fingerprints}
+
+%%% Add PDF metadata to help others organize their library
+%%% Once the PDF is generated, you can check the metadata with
+%%% $ pdfinfo template.pdf
+\hypersetup{
+pdftitle={Cosine Similarity Distillation: Teacher-Free Knowledge Transfer via Random Projection Fingerprints},
+pdfsubject={cs.LG, cs.CV},
+pdfauthor={Danny Wang},
+pdfkeywords={knowledge distillation, random projections, cosine similarity, teacher-free, efficient ML},
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+	Traditional knowledge distillation (KD) requires live forwarding of the teacher model during student training, incurring significant memory, storage, and privacy costs. We propose Cosine Similarity Distillation (CSD), a method that precomputes the cosine similarity between the teacher's intermediate features and a frozen random reference matrix to produce compact \emph{fingerprints} for each training sample. The student is then trained to match these fingerprints via regression alongside its classification loss, completely removing the teacher from the training loop while still allowing the student to inherit knowledge from the teacher. On CIFAR-100 with ResNet-20/56, CSD retains XX.X\% of the accuracy gain of standard KD while reducing the stored teacher-side information from a full model (3.29\,MB) to fingerprints as small as 50\,KB (per-class averages) or 24.41\,MB (per-sample), allowing for a 67$\times$ smaller storage footprint to be used. The teacher is forwarded exactly once for fingerprint precomputation compared to every batch for traditional KD. Our results establish CSD as a practical, privacy-friendly point on the accuracy-storage-privacy Pareto frontier for distillation.
+\end{abstract}
+
+% keywords can be removed
+\keywords{knowledge distillation \and random projections \and cosine similarity \and teacher-free \and efficient ML}
+
+\section{Introduction}
+
+Knowledge Distillation (KD)~\citep{hinton2015distilling} is a widely used model compression technique that trains a small but faster student model to mimic a large and more accurate teacher by transferring knowledge from the teacher to the compact student to improve the student's performance compared to training without the teacher. This is typically done by either minimizing the Kullback-Leibler divergence between the softened output distributions of teacher and student to force the student to mimic the teacher's outputs, or by matching intermediate representations directly to guide the training of the student's hidden layers to align with the smarter teacher's hidden layers~\citep{romero2015fitnets}. However, despite the effectiveness of such traditional distillation techniques, all such existing methods require the teacher to be loaded and forwarded at every step during student training. As such, this incurs three fundamental costs that limit deployment in resource-constrained or privacy-sensitive settings where the full teacher cannot be shared or kept in memory:
+
+\begin{enumerate}
+    \item \textbf{Memory cost:} Both models must reside in GPU memory simultaneously during distillation, limiting student size and batch throughput.
+    \item \textbf{Storage cost:} The full teacher must be stored and distributed alongside the student training pipeline.
+	\item \textbf{Privacy cost:} The teacher's weights and architecture are exposed, which creates a liability when training on sensitive data or deploying to untrusted environments.
+\end{enumerate}
+
+We propose \emph{Cosine Similarity Distillation (CSD)}, a new method of distillation that eliminates the teacher from the student training loop entirely. Before training, we first pass each training image through the teacher once, extract features at a chosen intermediate layer, and compute their cosine similarities with a frozen random matrix~$\mathbf{R}$. The resulting compact vector, referred to as the \emph{fingerprint}, encodes the directional structure of the teacher's feature space. The teacher is then discarded. During student training, the student's features at the same layer are projected onto the same random basis, and the model is trained to match the precomputed fingerprints alongside the cross-entropy loss. In general, the matrix~$\mathbf{R}$ provides a standardized coordinate system for fingerprint calculation.
+
+This approach offers three key advantages:
+
+\begin{enumerate}
+    \item \textbf{Teacher-free training:} The teacher is only forwarded once for fingerprint precomputation, so during the computationally intensive student training phase, only the student exists in memory. With the CIFAR-100 dataset and ResNet-20/56, this reduces teacher forwards from 78,200 (KD) or 234,600 (FitNet) to 1.
+    \item \textbf{Extreme storage efficiency}: Fingerprints can be very small. Per-class averaged fingerprints require only 50 KB to encode the full CIFAR-100 dataset (67$\times$ smaller than the 3.29 MB teacher model), while per-sample fingerprints (24.41 MB) are larger but preserve per-sample information and are privacy-preserving by construction.
+	\item \textbf{Inherent privacy:} Fingerprints are cosine similarities against a random matrix, which means that recovering the original features from these projections requires solving an underdetermined linear system (Gaussian random projections are information-theoretically hard to invert), introducing a natural one-way barrier that makes teacher reconstruction infeasible. Additionally, even if features were recovered, they are pooled activations and not input images, which prevents training data reconstruction.
+\end{enumerate}
+
+We evaluate CSD on CIFAR-100 with ResNet-56 as teacher and ResNet-20 as student. CSD recovers XX.X\% of KD's accuracy gain over the student-only baseline while achieving the storage and computation advantages above. We present ablation studies on fingerprint dimension r and loss weight $\lambda$, and we validate the core mechanism by measuring the cosine similarity between student and teacher fingerprints during training.
+
+The remainder of this paper is organized as follows.
+Section~\ref{sec:related} reviews related work.
+Section~\ref{sec:method} details the CSD method.
+Section~\ref{sec:setup} describes the experimental setup.
+Section~\ref{sec:results} presents results and ablations.
+Section~\ref{sec:discussion} discusses storage, privacy, limitations, and future work.
+Section~\ref{sec:conclusion} concludes.
+
+\section{Related Work}
+\label{sec:related}
+
+% \lipsum[4] See Section \ref{sec:related}.
+
+\subsection{Knowledge Distillation}
+
+Knowledge distillation was formalized by Hinton et al.~\citep{hinton2015distilling}, who train a student to match the softened output distribution of a teacher. The KD loss is:
+
+\begin{equation}
+\mathcal{L}_{\text{KD}} = (1-\alpha) \cdot \text{CE}(S(x), y) + \alpha \cdot T^2 \cdot \text{KL}\left(\sigma(S(x)/T) \;\|\; \sigma(T(x)/T)\right)
+\end{equation}
+
+where $\sigma$ is the softmax function, $T$ is the temperature, and $\alpha$ balances the two terms. The teacher must be forwarded at every batch to produce $T(x)$, resulting in $N_{\text{batches}} \times N_{\text{epochs}}$ teacher forwards. For our setting (128 batch size, 200 epochs), this amounts to 78,200 forwards.
+
+FitNet~\citep{romero2015fitnets} extends KD to the feature level by minimizing the mean-squared error between intermediate representations:
+
+\begin{equation}
+\mathcal{L}_{\text{FitNet}} = \text{CE}(S(x), y) + \beta \cdot \text{MSE}(f_S(x), f_T(x))
+\end{equation}
+
+where $f_S$ and $f_T$ are pooled features from a chosen layer. FitNet requires teacher forwards at every batch (234,600 in our setup, accounting for the $\beta$ grid search). Attention Transfer [8] follows the same pattern.
+
+%\begin{equation}
+%	\xi _{ij}(t)=P(x_{t}=i,x_{t+1}=j|y,v,w;\theta)= {\frac {\alpha _{i}(t)a^{w_t}_{ij}\beta _{j}(t+1)b^{v_{t+1}}_{j}(y_{t+1})}{\sum _{i=1}^{N} \sum _{j=1}^{N} \alpha _{i}(t)a^{w_t}_{ij}\beta _{j}(t+1)b^{v_{t+1}}_{j}(y_{t+1})}}
+%\end{equation}
+
+\subsection{Cosine Similarity in Distillation}
+
+CosPress~\citep{mannix2025preserving} preserves cosine similarities between image embeddings in the feature space, but it still requires the teacher model at training time and uses learned projection layers. CSD differs fundamentally in two ways: (a) the projection matrix **R** is random and frozen—no learning is involved—and (b) the teacher is completely discarded after fingerprint precomputation.
+
+\subsection{Teacher-Free Distillation}
+
+\subsection{Random Projections in Machine Learning}
+
+\section{Method}
+
+\subsection{Notation and Preliminaries}
+
+\subsection{Random Reference Matrix}
+
+\subsection{Teacher Fingerprint Generation}
+
+\subsection{Student Training with CSD}
+
+\subsection{Why CSD Works}
+
+\section{Experimental Setup}
+
+\section{Examples of citations, figures, tables, references}
+\label{sec:others}
+
+\subsection{Citations}
+Citations use \verb+natbib+. The documentation may be found at
+\begin{center}
+	\url{http://mirrors.ctan.org/macros/latex/contrib/natbib/natnotes.pdf}
+\end{center}
+
+Here is an example usage of the two main commands (\verb+citet+ and \verb+citep+): Some people thought a thing \citep{kour2014real, hadash2018estimate} but other people thought something else \citep{kour2014fast}. Many people have speculated that if we knew exactly why \citet{kour2014fast} thought this\dots
+
+\subsection{Figures}
+\lipsum[10]
+See Figure \ref{fig:fig1}. Here is how you add footnotes. \footnote{Sample of the first footnote.}
+\lipsum[11]
+
+\begin{figure}
+	\centering
+	\fbox{\rule[-.5cm]{4cm}{4cm} \rule[-.5cm]{4cm}{0cm}}
+	\caption{Sample figure caption.}
+	\label{fig:fig1}
+\end{figure}
+
+\subsection{Tables}
+See awesome Table~\ref{tab:table}.
+
+The documentation for \verb+booktabs+ (`Publication quality tables in LaTeX') is available from:
+\begin{center}
+	\url{https://www.ctan.org/pkg/booktabs}
+\end{center}
+
+
+\begin{table}
+	\caption{Sample table title}
+	\centering
+	\begin{tabular}{lll}
+		\toprule
+		\multicolumn{2}{c}{Part}                   \\
+		\cmidrule(r){1-2}
+		Name     & Description     & Size ($\mu$m) \\
+		\midrule
+		Dendrite & Input terminal  & $\sim$100     \\
+		Axon     & Output terminal & $\sim$10      \\
+		Soma     & Cell body       & up to $10^6$  \\
+		\bottomrule
+	\end{tabular}
+	\label{tab:table}
+\end{table}
+
+\subsection{Lists}
+\begin{itemize}
+	\item Lorem ipsum dolor sit amet
+	\item consectetur adipiscing elit.
+	\item Aliquam dignissim blandit est, in dictum tortor gravida eget. In ac rutrum magna.
+\end{itemize}
+
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}  %%% Uncomment this line and comment out the ``thebibliography'' section below to use the external .bib file (using bibtex) .
+
+
+%%% Uncomment this section and comment out the \bibliography{references} line above to use inline references.
+% \begin{thebibliography}{1}
+
+% 	\bibitem{kour2014real}
+% 	George Kour and Raid Saabne.
+% 	\newblock Real-time segmentation of on-line handwritten arabic script.
+% 	\newblock In {\em Frontiers in Handwriting Recognition (ICFHR), 2014 14th
+% 			International Conference on}, pages 417--422. IEEE, 2014.
+
+% 	\bibitem{kour2014fast}
+% 	George Kour and Raid Saabne.
+% 	\newblock Fast classification of handwritten on-line arabic characters.
+% 	\newblock In {\em Soft Computing and Pattern Recognition (SoCPaR), 2014 6th
+% 			International Conference of}, pages 312--318. IEEE, 2014.
+
+% 	\bibitem{hadash2018estimate}
+% 	Guy Hadash, Einat Kermany, Boaz Carmeli, Ofer Lavi, George Kour, and Alon
+% 	Jacovi.
+% 	\newblock Estimate and replace: A novel approach to integrating deep neural
+% 	networks with existing applications.
+% 	\newblock {\em arXiv preprint arXiv:1804.09028}, 2018.
+
+% \end{thebibliography}
+
+
+\end{document}
