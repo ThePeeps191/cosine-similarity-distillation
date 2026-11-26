@@ -34,7 +34,7 @@ from train_student_kd import train_student_kd
 from train_student_fitnet import train_student_fitnet
 from train_student_csd import train_student_csd
 from evaluate import collect_all_results
-from ablation import run_fingerprint_ablation, run_lambda_ablation
+from ablation import run_fingerprint_ablation, run_lambda_ablation, run_lambda_ablation_per_class
 from plot import (
     plot_teacher_training,
     plot_accuracy_comparison,
@@ -57,9 +57,10 @@ def _load_json(path: str) -> dict[str, Any]:
         return json.load(f)
 
 
-def _find_best_lambda(config: Config) -> float:
+def _find_best_lambda(config: Config, per_class: bool = False) -> float:
     """Use the lambda ablation results to find the best λ, or return default."""
-    ablation_path = os.path.join(config.results_dir, "ablation_lambda.json")
+    fname = "ablation_lambda_per_class.json" if per_class else "ablation_lambda.json"
+    ablation_path = os.path.join(config.results_dir, fname)
     if os.path.exists(ablation_path):
         data = _load_json(ablation_path)
         if data:  # guard against empty list
@@ -134,30 +135,40 @@ def main() -> None:
     print("PHASE 4: CSD Training")
     print("=" * 50)
 
-    # 4a. Lambda ablation → find best λ
+    # 4a. Lambda ablation — per‑sample → find best λ
     ablation_lambda_path = os.path.join(config.results_dir, "ablation_lambda.json")
     if os.path.exists(ablation_lambda_path):
-        print("[SKIP] Lambda ablation already done.")
+        print("[SKIP] Per‑sample lambda ablation already done.")
     else:
-        print("\n--- Lambda tuning for CSD ---")
+        print("\n--- Lambda tuning for CSD (per‑sample) ---")
         run_lambda_ablation(config)
 
-    best_lambda = _find_best_lambda(config)
-    print(f"Best λ from tuning: {best_lambda}")
+    # 4b. Lambda ablation — per‑class → find best λ
+    ablation_lambda_per_class_path = os.path.join(config.results_dir, "ablation_lambda_per_class.json")
+    if os.path.exists(ablation_lambda_per_class_path):
+        print("[SKIP] Per‑class lambda ablation already done.")
+    else:
+        print("\n--- Lambda tuning for CSD (per‑class) ---")
+        run_lambda_ablation_per_class(config)
 
-    # 4b. Train CSD per‑sample with best λ
+    best_lambda_sample = _find_best_lambda(config, per_class=False)
+    best_lambda_class = _find_best_lambda(config, per_class=True)
+    print(f"Best λ per‑sample: {best_lambda_sample}")
+    print(f"Best λ per‑class: {best_lambda_class}")
+
+    # 4c. Train CSD per‑sample with its best λ
     if os.path.exists(config.csd_sample_ckpt):
         print("[SKIP] CSD per‑sample checkpoint exists.")
     else:
-        print(f"\n--- CSD (per‑sample, λ={best_lambda}) ---")
-        train_student_csd(config, use_per_class=False, lambda_csd=best_lambda)
+        print(f"\n--- CSD (per‑sample, λ={best_lambda_sample}) ---")
+        train_student_csd(config, use_per_class=False, lambda_csd=best_lambda_sample)
 
-    # 4c. Train CSD per‑class with best λ
+    # 4d. Train CSD per‑class with its best λ
     if os.path.exists(config.csd_class_ckpt):
         print("[SKIP] CSD per‑class checkpoint exists.")
     else:
-        print(f"\n--- CSD (per‑class, λ={best_lambda}) ---")
-        train_student_csd(config, use_per_class=True, lambda_csd=best_lambda)
+        print(f"\n--- CSD (per‑class, λ={best_lambda_class}) ---")
+        train_student_csd(config, use_per_class=True, lambda_csd=best_lambda_class)
 
     # =======================================================================
     # Phase 5 — Ablation studies
@@ -184,7 +195,7 @@ def main() -> None:
     print("=" * 50)
 
     _, test_loader = get_cifar100_loaders(config)
-    results = collect_all_results(config, test_loader=test_loader)
+    results = collect_all_results(config, test_loader=test_loader, tta=True)
     if not results:
         print("[FATAL] Cannot collect results — teacher checkpoint missing. Exiting.")
         return

@@ -73,27 +73,27 @@ def run_lambda_ablation(config: Config) -> list[dict[str, Any]]:
     return results
 
 
-def run_variant_comparison(config: Config) -> dict[str, Any]:
-    """Compare per‑sample vs per‑class CSD variants.
+def run_lambda_ablation_per_class(config: Config) -> list[dict[str, Any]]:
+    """Sweep over ``ablation_lambda_values``, training CSD per‑class with r=128.
 
-    Returns dict with accuracy and storage for each variant.
+    Returns a list of dicts with keys: ``lambda``, ``accuracy``.
     """
     os.makedirs(config.results_dir, exist_ok=True)
+    results: list[dict[str, Any]] = []
 
-    # Per‑sample
-    hist_sample = train_student_csd(
-        config, use_per_class=False, lambda_csd=0.1,
-    )
-    # Per‑class
-    hist_class = train_student_csd(
-        config, use_per_class=True, lambda_csd=0.1,
-    )
+    for lam in config.ablation_lambda_values:
+        print(f"\n{'='*60}")
+        print(f"[Ablation λ (per‑class)] Running with λ = {lam}")
+        print(f"{'='*60}")
 
-    result = {
-        "csd_per_sample_acc": hist_sample["best_acc"],
-        "csd_per_class_acc": hist_class["best_acc"],
-    }
-    with open(os.path.join(config.results_dir, "variant_comparison.json"), "w") as f:
-        json.dump(result, f, indent=2)
+        history = train_student_csd(
+            config, use_per_class=True, lambda_csd=lam,
+            epochs_override=config.epochs_lambda_ablation, save_outputs=False,
+        )
+        results.append({"lambda": lam, "accuracy": history["best_acc"]})
 
-    return result
+    path = os.path.join(config.results_dir, "ablation_lambda_per_class.json")
+    with open(path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    return results

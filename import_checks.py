@@ -28,7 +28,7 @@ modules = [
     ("train_student_kd.py",       "from train_student_kd import train_student_kd"),
     ("train_student_fitnet.py",   "from train_student_fitnet import train_student_fitnet"),
     ("train_student_csd.py",      "from train_student_csd import train_student_csd"),
-    ("ablation.py",      "from ablation import run_fingerprint_ablation, run_lambda_ablation"),
+    ("ablation.py",      "from ablation import run_fingerprint_ablation, run_lambda_ablation, run_lambda_ablation_per_class"),
     ("evaluate.py",      "from evaluate import collect_all_results"),
     ("main.py",          "import main"),
 ]
