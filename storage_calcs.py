@@ -1,120 +1,90 @@
-"""
-Verification script for all of the CSD paper storage and compute claims.
+"""Exact, byte-accurate storage and compute verification for SimHash-CSD.
 
-Computes model sizes, fingerprint storage, teacher-forward counts, and
-storage reduction ratios using only the model architecture and config
-(no GPU training needed). Every formula is also explained inline.
+Computes exact parameter counts, transfer artifact byte sizes (including ALL
+tensors, quantization scales, and 4-byte PRNG seeds — zero hidden overhead),
+and online teacher-forward counts. No GPU required.
 
-Run from repo root with venv active:
-
+Run:
     python storage_calcs.py
 """
 
-from models import resnet20, resnet56
-from utils import count_parameters, get_model_size_mb
+from __future__ import annotations
 
-print("=" * 60)
-print("STORAGE VERIFICATION - Cosine Similarity Distillation")
-print("=" * 60)
+import torch
+from csd_core import build_csd_artifacts
+from models import resnet20, resnet32x4, resnet56, vgg8_cifar
+from utils import count_parameters, format_bytes, get_model_size_bytes
 
-# ------------------------------------------------------------------
-# Teacher model size
-# count_parameters() sums all trainable params. Each float32 uses 4 bytes.
-# get_model_size_mb() converts to binary megabytes: params * 4 / (1024^2).
-# ------------------------------------------------------------------
-teacher_params = count_parameters(resnet56())
-teacher_mb = get_model_size_mb(resnet56())
-print(f"\nTeacher (ResNet-56):")
-print(f"  Trainable parameters: {teacher_params:,}")
-print(f"  Model size (float32): {teacher_mb:.2f} MB")
-print(f"  Model size in KB:     {teacher_mb * 1024:.1f} KB")
 
-# ------------------------------------------------------------------
-# Student model size
-# ------------------------------------------------------------------
-student_params = count_parameters(resnet20())
-student_mb = get_model_size_mb(resnet20())
-print(f"\nStudent (ResNet-20):")
-print(f"  Trainable parameters: {student_params:,}")
-print(f"  Model size (float32): {student_mb:.2f} MB")
-print(f"  Model size in KB:     {student_mb * 1024:.1f} KB")
+def main() -> None:
+    print("=" * 88)
+    print("EXACT BYTE-LEVEL STORAGE & COMPUTE AUDIT — SimHash-CSD")
+    print("=" * 88)
 
-# ------------------------------------------------------------------
-# Random matrix R
-# R has shape (C=64, r=128). Each entry is float32 (4 bytes).
-# Size = 64 * 128 * 4 = 32,768 bytes = 32 KB.
-# ------------------------------------------------------------------
-R_elements = 64 * 128
-R_bytes = R_elements * 4
-R_kb = R_bytes / 1024
-print(f"\nRandom matrix R (64 x 128):")
-print(f"   64 channels after layer3, 128 = fingerprint dimension r")
-print(f"  Formula: C x r x 4 bytes = 64 x 128 x 4")
-print(f"  Size:    {R_kb:.2f} KB")
+    t_r56 = resnet56(num_classes=100)
+    t_r32x4 = resnet32x4(num_classes=100)
+    s_r20 = resnet20(num_classes=100)
+    s_vgg8 = vgg8_cifar(num_classes=100)
 
-# ------------------------------------------------------------------
-# Per-sample fingerprints
-# 50,000 training images, each with an r-dimensional fingerprint.
-# Each entry is float32 (4 bytes).
-# Size = 50000 * 128 * 4 = 25,600,000 bytes.
-# PyTorch uses binary prefixes: 1 MB = 1024 * 1024 = 1,048,576 bytes.
-# So 25,600,000 / 1,048,576 = 24.41 MB.
-# If you see "25.6 MB" elsewhere, that's decimal (1000^2), not binary.
-# ------------------------------------------------------------------
-num_images = 50000
-sample_elements = num_images * 128
-sample_bytes = sample_elements * 4
-sample_mb_binary = sample_bytes / (1024 * 1024)
-sample_mb_decimal = sample_bytes / (1000 * 1000)
-print(f"\nPer-sample fingerprints ({num_images} images x r=128):")
-print(f"   50000 = CIFAR-100 training set size")
-print(f"  Formula: {num_images} x 128 x 4 bytes")
-print(f"  Binary (1024^2 MB): {sample_mb_binary:.2f} MB  (PyTorch convention)")
-print(f"  Decimal (1000^2 MB): {sample_mb_decimal:.2f} MB  (marketing units)")
+    r56_bytes = get_model_size_bytes(t_r56)
+    r32x4_bytes = get_model_size_bytes(t_r32x4)
+    print("\nModels (float32, CIFAR-100):")
+    print(f"  Teacher  ResNet-56   : {count_parameters(t_r56):>10,} params | {format_bytes(r56_bytes)}")
+    print(f"  Teacher  ResNet-32x4 : {count_parameters(t_r32x4):>10,} params | {format_bytes(r32x4_bytes)}")
+    print(f"  Student  ResNet-20   : {count_parameters(s_r20):>10,} params | {format_bytes(get_model_size_bytes(s_r20))}")
+    print(f"  Student  VGG-8-BN    : {count_parameters(s_vgg8):>10,} params | {format_bytes(get_model_size_bytes(s_vgg8))}")
 
-# ------------------------------------------------------------------
-# Per-class fingerprints
-# 100 classes, each with an r-dimensional fingerprint (mean of per-sample).
-# Size = 100 * 128 * 4 = 51,200 bytes = 50 KB.
-# ------------------------------------------------------------------
-num_classes = 100
-class_elements = num_classes * 128
-class_bytes = class_elements * 4
-class_kb = class_bytes / 1024
-print(f"\nPer-class fingerprints ({num_classes} classes x r=128):")
-print(f"   100 = number of CIFAR-100 classes")
-print(f"  Formula: {num_classes} x 128 x 4 bytes")
-print(f"  Size:    {class_kb:.2f} KB")
+    # Synthetic CIFAR-100 teacher tensors (N=50,000, K=100, C2=32, C3=64)
+    N, K, C2, C3 = 50000, 100, 32, 64
+    dummy_c100 = {
+        "l2": torch.zeros(N, C2),
+        "l3": torch.zeros(N, C3),
+        "logits": torch.zeros(N, K),
+        "labels": torch.arange(N) % K,
+        "classifier_weight": torch.zeros(K, C3),
+    }
 
-# ------------------------------------------------------------------
-# Storage comparison ratios
-# Teacher size / per-class fingerprint size gives the reduction ratio.
-# ------------------------------------------------------------------
-teacher_kb = teacher_mb * 1024
-ratio = teacher_kb / class_kb
-print(f"\nStorage comparison:")
-print(f"  Teacher size:                {teacher_kb:.1f} KB ({teacher_mb:.2f} MB)")
-print(f"  Per-class fingerprints:      {class_kb:.2f} KB")
-print(f"  Storage reduction ratio:     {ratio:.0f}x")
-print(f"  (teacher is {ratio:.0f}x larger than per-class fingerprints)")
+    art_1bit_32 = build_csd_artifacts(dummy_c100, num_classes=K, r=32, quant="1bit", top_m=12)
+    art_1bit_64 = build_csd_artifacts(dummy_c100, num_classes=K, r=64, quant="1bit", top_m=12)
+    art_1bit_128 = build_csd_artifacts(dummy_c100, num_classes=K, r=128, quant="1bit", top_m=12)
+    art_int8_8 = build_csd_artifacts(dummy_c100, num_classes=K, r=8, quant="int8", top_m=12)
+    art_int8_32 = build_csd_artifacts(dummy_c100, num_classes=K, r=32, quant="int8", top_m=12)
 
-# ------------------------------------------------------------------
-# Teacher forwards during training
-# KD: 1 forward per batch x num_batches per epoch x 200 epochs
-# FitNet: same x 3 (beta sweep)
-# CSD: just 1 (precomputation phase, then teacher is discarded)
-# ------------------------------------------------------------------
-batch_size = 128
-approx_batches = -(-50000 // batch_size)  # ceil(50000/128) = 391
-kd_forwards = approx_batches * 200
-print(f"\nTeacher forwards during training:")
-print(f"  {approx_batches} batches/epoch = 50000 images / 128 batch size")
-print(f"  200 epochs (config.epochs_student)")
-print(f"  KD:     {approx_batches} x 200 = {kd_forwards:,} forwards")
-print(f"  FitNet: {approx_batches} x 200 x 3 = {kd_forwards * 3:,} forwards (3 betas)")
-print(f"  CSD:    1 forward (fingerprint precomputation only)")
+    direct_rp_class_multi = (K * 128 * 4) * 2 + (C3 + C2) * 128 * 4
+    direct_rp_sample_l3 = N * 128 * 4 + C3 * 128 * 4
+    offline_dense_logits = N * K * 4
 
-# print("\n" + "=" * 60)
-print("\nAll numbers above are computed from architecture and config.")
-print("Accuracy and performance metrics require running `python main.py` on a GPU.")
-# print("=" * 60)
+    rows = [
+        ("Online KD / SP / FitNet (ResNet-56)", r56_bytes, "78,200 (every batch)"),
+        ("Online KD (ResNet-32x4)", r32x4_bytes, "78,200 (every batch)"),
+        ("Offline Dense Logits (50k x 100 fp32)", offline_dense_logits, "0 (offline only)"),
+        ("Direct-RP Per-Sample (r=128 fp32 + R3)", direct_rp_sample_l3, "0 (offline only)"),
+        ("Direct-RP Per-Class Baseline (L2+L3 + R2/R3)", direct_rp_class_multi, "0 (offline only)"),
+        ("Offline Sparse-12 Logit KD (int8)", art_1bit_64["storage_bytes"]["offline_sparse_logits"], "0 (offline only)"),
+        ("Relational INT8 (r=32, 0 extra params)", art_int8_32["storage_bytes"]["csd_rel_l3"], "0 (offline only)"),
+        ("Iso-Storage Relational INT8 (r=8)", art_int8_8["storage_bytes"]["csd_rel_l3"], "0 (offline only)"),
+        ("SimHash-CSD (r=32, 1-bit, high privacy)", art_1bit_32["storage_bytes"]["csd_rel_l3"], "0 (offline only)"),
+        ("SimHash-CSD (r=64, 1-bit, ours — primary)", art_1bit_64["storage_bytes"]["csd_rel_l3"], "0 (offline only)"),
+        ("SimHash-CSD (r=128, 1-bit, ours)", art_1bit_128["storage_bytes"]["csd_rel_l3"], "0 (offline only)"),
+        ("SimHash-CSD + Sparse-12 Logits (r=64)", art_1bit_64["storage_bytes"]["csd_rel_l3"] + art_1bit_64["storage_bytes"]["offline_sparse_logits"], "0 (offline only)"),
+    ]
+
+    print(f"\n{'Method (CIFAR-100, N=50,000)':<46s} {'Storage':>11s} {'vs R56':>13s} {'vs R32x4':>13s}   {'Train T-Fwds'}")
+    print("-" * 108)
+    for name, nbytes, fwds in rows:
+        r56_ratio = r56_bytes / max(1, nbytes)
+        r32_ratio = r32x4_bytes / max(1, nbytes)
+        s_r56 = f"{r56_ratio:5.1f}x smaller" if r56_ratio >= 1.0 else f"{1/r56_ratio:5.1f}x LARGER"
+        s_r32 = f"{r32_ratio:5.1f}x smaller" if r32_ratio >= 1.0 else f"{1/r32_ratio:5.1f}x LARGER"
+        print(f"{name:<46s} {format_bytes(nbytes):>11s} {s_r56:>13s} {s_r32:>13s}   {fwds}")
+
+    # STL-10 (N=5,000, K=10) exact check
+    t_r56_stl = resnet56(num_classes=10)
+    r56_stl_bytes = get_model_size_bytes(t_r56_stl)
+    stl_1bit_64 = 5000 * 8 + 4  # 8 bytes/image + 4-byte seed
+    print(f"\nSTL-10 (N=5,000): ResNet-56 = {format_bytes(r56_stl_bytes)} vs SimHash-CSD (r=64) = "
+          f"{format_bytes(stl_1bit_64)} ({r56_stl_bytes / stl_1bit_64:.1f}x smaller)")
+
+
+if __name__ == "__main__":
+    main()

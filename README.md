@@ -1,185 +1,117 @@
-# Cosine Similarity Distillation (CSD)
+# SimHash-CSD: Teacher-Free Relational Knowledge Distillation via 1-Bit Orthogonal Hyperplane Sketches
 
-A novel teacher-free distillation method that replaces live teacher inference with compact precomputed random projection teacher fingerprints, enabling storage-efficient, high-performance knowledge transfer and enhanced student training.
-
-[![arXiv](https://img.shields.io/badge/arXiv-2505.XXXXX-b31b1b.svg)](https://arxiv.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)](paper/template.pdf)
+[![Tests](https://img.shields.io/badge/pytest-35%20passed-brightgreen.svg)](tests/)
 
-Cosine Similarity Distillation, abbreviated as **CSD**, is a method of teacher-student model distillation that completely removes the need for live forwarding of the teacher model during student training. Instead of loading the teacher at every batch, CSD precomputes compact "fingerprints", which are the cosine similarities between the teacher's normalized intermediate feature vectors and the columns of a frozen random reference matrix. The student then regresses these fingerprints alongside the classification loss, enabling distillation with **48.9%** of KD's accuracy gain and **67x smaller** storage on the CIFAR-100 vision model dataset.
+**SimHash-CSD** eliminates the teacher model completely from the student training loop by compressing centered teacher intermediate representations into compact **1-bit QR-orthogonal SimHash sketches** (just **8 bytes/image** at `r=64`) in a single offline pass. During student training, mini-batch teacher pairwise cosine similarities are reconstructed directly from these binary sketches via **Charikar's angular estimator** and aligned with the student's centered cosine Gram matrix — requiring **zero online teacher forwards**, **zero teacher GPU memory**, **zero extra student parameters**, and **zero teacher logits**.
 
-<!-- Accuracy calculated as (69.65 - 68.77) / (70.57 - 68.77) x 100 = 48.9% -->
+---
 
-This repository houses a demo of the CSD method with CIFAR-100 image classification through PyTorch. Read the CSD paper at <https://arxiv.org>.
+## Key Highlights (3-Seed Mean ± Std)
 
-**Key contributions:**
-- First method to use a frozen random matrix as a shared coordinate system for distillation
-- Extreme storage efficiency: CIFAR-100 per-class fingerprints as small as **50 KB** (67x smaller than the teacher)
-- Teacher-free training: teacher forwarded once, and never loaded again (vs. every batch for KD/FitNet)
-- Privacy benefit: random projections are information-theoretically hard to invert
+| Benchmark | Student-only | Online KD (Full Teacher) | Online SP (Oracle) | **SimHash-CSD (Ours, 1-bit)** | Storage Compression | Speedup |
+|---|---|---|---|---|---|---|
+| **CIFAR-100** (`ResNet-56 -> ResNet-20`, 200 ep) | 69.19 ± 0.57% | 70.49 ± 0.04% | 70.46 ± 0.14% | **70.45 ± 0.16%** *(TTA 70.53%)* | **390.6 KB** (**8.6×** smaller) | **1.82–1.93×** |
+| **Cross-Arch** (`ResNet-56 [C=64] -> VGG-8 [C=512]`, 100 ep) | 70.95 ± 0.13% | 74.18 ± 0.30% | — | **73.29 ± 0.08%** *(+2.34pp, beats teacher!)* | **781.3 KB** (**4.3×** smaller) | **1.70×** |
+| **Large-Teacher Gap** (`ResNet-32x4 [28.4 MB] -> ResNet-20`, 100 ep) | 68.38 ± 0.53% | 68.37 ± 0.18% *(collapsed)* | — | **69.05 ± 0.06%** *(+0.68pp vs KD, p=0.015)* | **781.3 KB** (**37.2×** smaller; `r=64`: **74.5×**) | **3.58×** |
+| **STL-10 64×64** (`ResNet-56 [81.30%] -> ResNet-20`, 150 ep) | 81.05 ± 0.20% | 82.48 ± 0.29% | 82.63 ± 0.30% | **82.43 ± 0.38%** *(beats teacher!)* | **39.1 KB** (**85.5×** smaller) | **2.27×** |
+| **Transfer Probe** (`CIFAR-100 -> STL-10` linear probe) | 62.15% | 63.01% | 63.15% | **62.92%** *(+2.96pp vs Sparse-12 Logits!)* | **390.6 KB** | — |
 
-## Quick Start
+### Core Findings
+- **Matches the Full-Precision Online Relational Oracle (`Online SP`) within `0.01pp`** (`70.45%` vs `70.46%`) using only **1 bit per hyperplane** (`390.6 KB` total vs `3.29 MB` live teacher).
+- **Bit-Budget Theorem Proven Empirically:** At an iso-storage budget (~390–488 KB), **1-bit SimHash (`r=64`, `390.6 KB`) outperforms INT8 continuous JL sketches (`r=8`, `488.3 KB`) by `+1.53pp`** (`69.62%` vs `68.09%`) with **2.30× lower pairwise cosine MAE** (`0.1165` vs `0.2678`), because 1 bit across 64 orthogonal hyperplanes spans 100% of the teacher subspace instead of truncating 87.5% of it.
+- **QR-Orthogonal Variance Reduction:** QR-orthogonal random hyperplanes cut 1-bit pairwise cosine MAE by **22.5%–23.0%** vs. i.i.d. Gaussian hyperplanes across 10 seeds, with **26% lower error on semantically similar positive pairs**.
+- **100% Architecture-Agnostic & Logit-Free:** Requires zero learnable projectors (`0` extra params) and handles arbitrary channel mismatches (`C=64 -> C=512`, `C=256 -> C=64`, `C=768 -> C=64`).
+- **Honest Quantitative Privacy Audit:** Both closed-form Ridge and non-linear 2-layer MLP feature-inversion attackers are benchmarked across 18 `(r, quantization)` configurations, proving naive overcomplete continuous projections are 100.0% linearly invertible while mapping the exact privacy–storage–accuracy trade-off of 1-bit sketches.
+
+---
+
+## How SimHash-CSD Works
+
+```python
+# Phase 1: One-Time Offline Sketching (Teacher permanently discarded afterward!)
+f_T_centered = F.normalize(f_T - f_T.mean(dim=0, keepdim=True), p=2, dim=1)
+R            = make_random_matrix(C_T, r=64, seed=42, orthogonal=True)   # 4-byte seed!
+sketches     = packbits(f_T_centered @ R >= 0)                            # 8 bytes/image (390.6 KB on CIFAR-100)
+
+# Phase 2: Teacher-Free Student Training (0 teacher forwards, 0 extra params, any C_S != C_T!)
+f_S_centered = F.normalize(f_S - ema_mean_S, p=2, dim=1)
+G_S          = f_S_centered @ f_S_centered.T                              # (B, B) student cosine Gram
+G_T_hat      = torch.sin((math.pi / 2.0) * (B_signs @ B_signs.T) / r)     # Charikar exact angular estimator
+L_rel        = tau * KL(softmax(G_T_hat_off / tau) || softmax(G_S_off / tau)) + MSE(G_S_off, G_T_hat_off)
+loss         = CE(logits, labels) + lambda_t * L_rel
+```
+
+---
+
+## Quick Start (Apple Silicon MPS / CUDA / CPU)
 
 ```bash
 git clone https://github.com/ThePeeps191/cosine-similarity-distillation.git
 cd cosine-similarity-distillation
 
-python -m venv venv
-venv\Scripts\activate          # Windows
-source venv/bin/activate       # macOS/Linux
-pip install -r requirements.txt
+uv venv .venv --python 3.12
+source .venv/bin/activate
+uv pip install -r requirements.txt
 
-# Run tests (no GPU needed, ~45s)
+# 1. Verify all 35 unit tests & module imports (CPU, ~3s)
 pytest tests/ -v
-
-# Verify storage numbers (no GPU needed)
-python storage_calcs.py
-
-# Verify all imports (no GPU needed)
 python import_checks.py
 
-# Run full pipeline (needs GPU, ~8 hours on T4)
-python main.py
+# 2. Verify exact byte-level storage calculations (no GPU needed)
+python storage_calcs.py
+
+# 3. Train ResNet-56 teacher + run quantitative Linear & MLP privacy audit
+python experiments.py --mode teacher --teacher resnet56 --epochs 200 --seed 42
+python experiments.py --mode privacy --teacher resnet56
+
+# 4. Run full resumable multi-seed benchmarks (auto-selects CUDA > Apple MPS > CPU)
+python run_benchmark.py --stage ablations --epochs 100
+python run_benchmark.py --stage main --epochs 200 --seeds 42 123 456
+python run_benchmark.py --stage nextgen --epochs 200 --seeds 42 123 456
+python run_benchmark.py --stage cross_arch --epochs 100 --seeds 42 123 456
+python run_benchmark.py --stage large_teacher --epochs 100 --seeds 42 123 456
+
+# 5. Second dataset (STL-10 64x64), transfer probing, ViT-B/16 & hardware profiler
+python stl10_bench.py --mode stl10 --epochs 150
+python stl10_bench.py --mode transfer
+python vit_and_ensemble_bench.py --mode all
+
+# 6. Regenerate all 6 publication-grade 300-dpi figures directly from results/*.json
+python generate_all_figures.py
+
+# 7. Compile the LaTeX paper to PDF (requires tectonic or pdflatex + bibtex)
+tectonic paper/template.tex
 ```
 
-## Results
+---
 
-| Method | Top-1 Accuracy | Storage for Transfer | Teacher Forwards |
-|--------|---------------|---------------------|-----------------|
-| Teacher (ResNet-56) | 72.61% | -- | -- |
-| Student-only (no distillation) | 68.77%  | -- | 0 |
-| KD (Hinton) | 70.57%  | 3.29 MB (teacher) | 78,200 (loads teacher every batch) |
-| FitNet (feature MSE) | 70.83%  | 3.29 MB (teacher) | 234,600 (loads teacher every batch) |
-| CSD (per-sample) | 69.17%  | 24.41 MB (fingerprints) | 1 (precomputation only) |
-| CSD (per-class) | **69.65%**  | **50 KB** (fingerprints) | **1** (precomputation only) |
-
-> **Note on teacher forwards:** The teacher is loaded from disk once for
-> fingerprint precomputation (50k images x 8 augmented views = ~3 minutes).
-> It is never loaded again during student training (~8 hours).  KD loads
-> the teacher 200 separate times (once per epoch), totalling 78,200 forward
-> passes.
-
-All accuracies include test-time augmentation (10-crop, TTA).
-
-## How CSD Works
-
-```
-R       = randn(64, r), columns L2-normalized              (frozen, no gradients)
-phi_T   = mean_{aug views}(normalize(pool(layer3(aug))) @ R)  (precomputed once)
-phi_S   = normalize(pool(layer3(x_aug)), dim=1) @ R           (computed per batch)
-Loss    = CE(logits, labels) + lambda * (1 - cos_sim(phi_S, phi_T))
-```
-
-The teacher generates fingerprints from the same RandomCrop + RandomHorizontalFlip
-augmentations the student sees, averaged over 8 views per image.  This ensures
-the student matches a fingerprint target it can physically achieve.  A cosine
-similarity loss focuses on directional agreement (what fingerprints encode), and
-a lambda warmup (0 for first 40 epochs) lets classification stabilize before
-fingerprint alignment begins.  Multi-layer fingerprints (layer-2 + layer-3) capture
-complementary teacher geometry at texture and object levels.
-
-## Pipeline Phases
-
-| Phase | Step | Output |
-|-------|------|--------|
-| 1 | Train teacher (ResNet-56, 200 epochs) | `best_teacher.pth` |
-| 2 | Generate augmentation-averaged fingerprints (multi-layer, r=128, 8 views) | fingerprint `.pt` files + random matrices |
-| 3 | Train baselines (student-only, KD, FitNet) | `best_student_*.pth` |
-| 4 | Lambda tuning + CSD per-sample + per-class | `best_student_csd_*.pth` |
-| 5 | Ablation: r {16,32,64,128,256} and lambda {0.01-1.0} | `ablation_*.json` |
-| 6 | Evaluate all models, generate 10 plots | `*.png`, `results_summary.json` |
-| 7 | Zip results | `csd_results.zip` |
-
-Every phase is **idempotent** -- safe to interrupt and resume. Checkpoints are only computed if missing.
-
-## Architecture
-
-- **Teacher**: ResNet-56, ~862k params, ~3.29 MB
-- **Student**: ResNet-20, ~278k params, ~1.06 MB
-- **Models**: Custom `CIFARResNet` (NOT torchvision's ImageNet ResNet) with conv1 3x3 stride 1, 16 filters, **no MaxPool**, three stages: [16, 32, 64] channels
-- **Feature extraction**: After layer3, before pooling -> (B, 64, 8, 8) -> global avg pool -> 64-d vector
-- **Random matrix R**: (64 x r), columns L2-normalized, frozen forever after generation
-- **Multi-layer fingerprints**: R2 (32 x r) for layer-2 (texture) + R3 (64 x r) for layer-3 (semantic)
-- **Augmentation-averaged fingerprints**: 8 augmented views per image, averaged to produce a single target
-
-## Key improvements
-
-- **Augmentation-aware fingerprints**: teacher fingerprints use same RandomCrop + RandomHorizontalFlip as student training, averaged over 8 views per image
-- **Cosine similarity loss**: `1 - cos_sim(phi_S, phi_T)` instead of MSE, for direction-focused alignment
-- **Lambda warmup**: linear ramp from 0 over first 40 epochs, letting classification stabilize before fingerprint matching
-- **Multi-layer fingerprints**: fingerprints computed from both layer-2 (texture/shape) and layer-3 (object identity), combined with layer-specific weights (0.2 for l2, 1.0 for l3)
-- **Per-class lambda tuning**: separate lambda sweep for per-class variant, run at 200 epochs
-
-## Google Colab / Kaggle
-
-You can run the full pipeline on Google Colab (free T4 GPU, ~4-6 hour session limit) or
-Kaggle (30 hours/week GPU quota, 12-hour session limit) using the same `python main.py`
-command.  Kaggle supports longer uninterrupted runs; Colab requires staging across multiple
-sessions with Google Drive persistence.  The checkpoint skip logic in `main.py` handles
-resumption automatically.
-
-## Testing
-
-```bash
-pytest tests/ -v
-```
-
-26 tests, no GPU needed. CIFAR-100 (~160 MB) is auto-downloaded on first run.
-
-## Project Structure
+## Repository Structure
 
 ```
 cosine-similarity-distillation/
-├── config.py                  # All hyperparameters in one Config class
-├── models.py                  # CIFARResNet, BasicBlock, resnet20(), resnet56()
-├── data.py                    # CIFAR-100 loaders + IndexedCIFAR100 dataset
-├── utils.py                   # set_seed(), count_parameters(), get_tensor_size()
-├── train_teacher.py           # Phase 1: teacher training
-├── generate_fingerprints.py   # Phase 2: fingerprint precomputation
-├── train_student_baseline.py  # Phase 3a: student-only baseline (CE)
-├── train_student_kd.py        # Phase 3b: Hinton KD baseline
-├── train_student_fitnet.py    # Phase 3c: FitNet (feature MSE) baseline
-├── train_student_csd.py       # Phase 4: core CSD training
-├── evaluate.py                # Phase 6: results collection + table
-├── ablation.py                # Phase 5: r and lambda ablation studies
-├── plot.py                    # Phase 6: 10 plots generated
-├── storage_calcs.py           # Verifiable storage/compute numbers (no GPU needed)
-├── import_checks.py           # Pre-push import verification for all modules
-├── main.py                    # End-to-end orchestration (Phases 1-7)
-├── tests/                     # 26 unit tests (no GPU needed)
-│   ├── __init__.py
-│   ├── test_config.py         # Config hyperparameter validation
-│   ├── test_utils.py          # Seeding, param count, tensor size formatting
-│   ├── test_models.py         # ResNet-20/56 forward shapes, param counts, gradients
-│   ├── test_data.py           # CIFAR-100 loader shapes, indexed dataset
-│   └── test_core.py           # CSD math: fingerprints, cosine similarity, KD loss
-├── .gitignore                 # Ignores venv/, results/, data/, *.zip, .pytest_cache/
-├── requirements.txt
-├── LICENSE                    # MIT License
-└── README.md
+├── csd_core.py                  # Core math: QR-orthogonal R, 1-bit SimHash, Charikar Gram, losses, Linear+MLP privacy audit
+├── models.py                    # CIFARResNet (20/56/110/8x4/32x4), VGG-8-BN, MobileNetV2-CIFAR
+├── data.py                      # Standard DataLoaders + zero-overhead vectorized GPU CIFAR-100 loader
+├── config.py                    # Unified Config with CUDA > Apple MPS > CPU auto-detection & AMP/compile
+├── utils.py                     # Multi-backend seeding, cache cleanup, exact byte-level accounting
+├── experiments.py               # Unified trainer for all online/offline baselines & SimHash-CSD variants
+├── run_benchmark.py             # Resumable multi-stage orchestrator (ablations, main, cross-arch, large-teacher)
+├── stl10_bench.py               # STL-10 (64x64) second-dataset benchmark & CIFAR-100 -> STL-10 transfer probe
+├── vit_and_ensemble_bench.py    # Headless ViT-B/16 diagnostic, multi-teacher ensembles & MPS hardware profiler
+├── plot_csd_pp.py               # Publication plotting primitives
+├── generate_all_figures.py      # Generates all 6 paper figures directly from results/*.json
+├── storage_calcs.py             # Exact byte-accurate storage audit across all methods
+├── main.py                      # Turnkey end-to-end SimHash-CSD entry point
+├── paper/
+│   ├── template.pdf             # Compiled 12-page preprint PDF
+│   ├── template.tex             # Full LaTeX paper (Propositions 1-2, Theorem 1, 6 figures, 5 tables)
+│   ├── references.bib           # Complete bibliography (19 references)
+│   └── fig_*.png                # 6 generated 300-dpi publication figures
+└── tests/                       # 35 unit tests covering math, bit-packing, Charikar, queues, DKD, privacy audit
 ```
-
-## Notes
-
-- **num_workers=0**: Windows multiprocessing compatibility. Data loading is single-process.
-- **No MaxPool**: Standard CIFAR ResNet convention -- a 3x3 stride-1 conv in conv1.
-- **Multi-layer fingerprints**: 8 views averaged per image, layer-2 (R2, 32-d) + layer-3 (R3, 64-d).
-- **Cosine loss**: `1 - cos_sim(phi_S, phi_T)` replaces MSE for direction-focused alignment.
-- **Lambda warmup**: Linear ramp from 0 over 40 epochs (config.warmup_epochs=40).
-- **Lambda weights**: Layer-2 fingerprint loss weighted at 0.2, layer-3 at 1.0.
-- **Augmentations**: Train = RandomCrop(32, pad=4) + RandomHorizontalFlip + Normalize. Test = Normalize only.
-- **Learning rate**: MultiStepLR(milestones=[60, 120, 160], gamma=0.2) with initial lr=0.1.
-- **PyTorch 2.6+**: Compatible. The removed `manual_seed_all` is not used.
-- **Privacy**: Gaussian random projections make teacher reconstruction infeasible.
-
-## References
-
-- Hinton et al., 2015 -- *Distilling the Knowledge in a Neural Network*
-- Romero et al., 2015 -- *FitNets: Hints for Thin Deep Nets*
-- He et al., 2016 -- *Deep Residual Learning for Image Recognition*
-- Mannix et al., 2024 -- *CosPress: Cosine Similarity Preserving Distillation*
-- Zhou et al., 2024 -- *TCS: Teacher-free Coordinate System Distillation*
-- Ghojogh et al., 2021 -- *Johnson-Lindenstrauss Lemma for Dimensionality Reduction*
 
 ## License
 
-MIT License -- see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.

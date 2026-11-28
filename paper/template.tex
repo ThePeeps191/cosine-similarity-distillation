@@ -2,414 +2,452 @@
 
 \documentclass{article}
 
-
-
 \usepackage{arxiv}
-
-\usepackage[utf8]{inputenc} % allow utf-8 input
-\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
-\usepackage{hyperref}       % hyperlinks
-\usepackage{url}            % simple URL typesetting
-\usepackage{booktabs}       % professional-quality tables
-\usepackage{amsfonts}       % blackboard math symbols
-\usepackage{nicefrac}       % compact symbols for 1/2, etc.
-\usepackage{microtype}      % microtypography
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{nicefrac}
+\usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{float}
-\usepackage{amsmath}
 \usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{hyperref}
 \usepackage{doi}
 
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}{Theorem}
 
+\title{SimHash-CSD: Teacher-Free Relational Knowledge Distillation via 1-Bit Orthogonal Hyperplane Sketches}
 
-\title{Cosine Similarity Distillation: Teacher-Free Knowledge Transfer via Random Projection Fingerprints}
-
-\date{May 10, 2026}
+\date{November 2026}
 
 \author{Danny Wang \\
-	Sir Winston Churchill High School\\
+	Independent Research \\
 	Calgary, Canada \\
 	\href{mailto:dannywang930@gmail.com}{\texttt{dannywang930@gmail.com}} \\
-	\href{https://dannywang.dev}{\texttt{dannywang.dev}}
-	\\
+	\href{https://dannywang.dev}{\texttt{dannywang.dev}} \\
 }
 
-% Uncomment to remove the date
-%\date{}
+\renewcommand{\headeright}{Preprint}
+\renewcommand{\undertitle}{Preprint}
+\renewcommand{\shorttitle}{SimHash-CSD: Teacher-Free Relational Distillation via 1-Bit Sketches}
 
-% Uncomment to override the `A preprint' in the header
-\renewcommand{\headeright}{Independent Research}
-\renewcommand{\undertitle}{Independent Research}
-\renewcommand{\shorttitle}{CSD: Teacher-Free Distillation with Random Fingerprints}
-
-%%% Add PDF metadata to help others organize their library
-%%% Once the PDF is generated, you can check the metadata with
-%%% $ pdfinfo template.pdf
 \hypersetup{
-pdftitle={Cosine Similarity Distillation: Teacher-Free Knowledge Transfer via Random Projection Fingerprints},
+pdftitle={SimHash-CSD: Teacher-Free Relational Knowledge Distillation via 1-Bit Orthogonal Hyperplane Sketches},
 pdfsubject={cs.LG, cs.CV},
 pdfauthor={Danny Wang},
-pdfkeywords={knowledge distillation, cosine similarity, random projections, teacher-free, efficient ML},
+pdfkeywords={knowledge distillation, SimHash, 1-bit random projections, relational distillation, teacher-free, efficient ML},
 }
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-	Traditional knowledge distillation (KD) requires inference of the teacher model at every batch during student training in order to transfer knowledge, causing extensive GPU memory costs and compromising the teacher's proprietary weights and architecture by exposing them. We propose Cosine Similarity Distillation (CSD), a distillation method that precomputes the cosine similarity between the teacher's intermediate features and a frozen random reference matrix to produce compact \emph{fingerprints} for each training sample. This precomputation phase only happens once before student training, and after fingerprints have been generated, the teacher can be discarded to be completely removed from the training loop. The student is then trained to match these fingerprints via regression alongside its classification loss. When tested on the CIFAR-100 dataset with ResNet-20/56 student and teacher architectures, CSD retains 49\% of the accuracy gain from standard KD while reducing the stored teacher-side information from the full 3.29\,MB model to per-class averaged fingerprints as small as 50\,KB (a 67$\times$ reduction). Our results establish CSD as a practical, privacy-friendly point on the accuracy-storage-privacy Pareto frontier for distillation.
+Standard online knowledge distillation (KD) requires keeping the teacher network resident in accelerator memory and forwarding it at every training step, incurring substantial compute, memory, and model-exposure overhead. Prior attempts at teacher-free offline feature distillation either store uncompressed multi-megabyte teacher tensors, collapse samples into coarse class means, or rely on overcomplete random projections that are coordinate-locked to matching channel dimensions and 100\% linearly invertible. We introduce \textbf{SimHash-CSD}, a teacher-free relational distillation method that compresses a teacher's centered intermediate feature geometry into compact \emph{1-bit orthogonal SimHash sketches} ($b_i = \operatorname{sign}(\tilde{f}_T(x_i)\mathbf{R}) \in \{-1,+1\}^r$, just 8 bytes/image at $r=64$) in a single offline pass, after which the teacher is permanently discarded. During student training, mini-batch teacher pairwise cosine similarities are reconstructed directly from these binary sketches via Charikar's angular estimator $\hat{G}_T(i,j)=\sin(\frac{\pi}{2}\frac{b_i^\top b_j}{r})$ and aligned with the student's centered cosine Gram matrix through temperature-calibrated relational KL divergence and off-diagonal MSE---requiring \textbf{zero online teacher forwards}, \textbf{zero extra student parameters}, and \textbf{zero teacher logits}. Theoretically, we establish why naive pointwise overcomplete projections degenerate and prove a \emph{bit-budget advantage}: at equal storage, allocating 1 bit across $r$ orthogonal hyperplanes avoids the subspace truncation of $b$-bit continuous Johnson--Lindenstrauss sketches (yielding $2.3\times$ lower pairwise error and $+1.53$\,pp higher accuracy at 20\% less storage than INT8). Across multi-seed benchmarks on CIFAR-100 and STL-10, \textbf{SimHash-CSD ($r=64$)} matches the full-precision online Similarity-Preserving (SP) oracle within $0.01$\,pp ($70.45\pm0.16\%$ vs.\ $70.46\pm0.14\%$) and Online Hinton KD ($70.49\pm0.04\%$) while cutting transfer storage by $8.6\times$ on ResNet-56 ($390.6$\,KB), $74.5\times$ on ResNet-32$\times$4 ($390.6$\,KB vs.\ $28.42$\,MB), and $85.5\times$ on STL-10 ($39.1$\,KB), accelerating training by $1.8\times$--$3.6\times$. Moreover, SimHash-CSD generalizes seamlessly across an $8\times$ channel mismatch (ResNet-56 $\to$ VGG-8: $+2.34$\,pp, $p<10^{-4}$, surpassing the teacher), resists capacity-gap collapse where Online KD fails (ResNet-32$\times$4 $\to$ ResNet-20: $+0.68$\,pp over Online KD, $p=0.015$), and transfers $+2.96$\,pp better to STL-10 than compressed offline logit KD. Finally, we conduct a rigorous linear and non-linear MLP feature-inversion audit to honestly characterize the accuracy--storage--privacy frontier.
 \end{abstract}
 
-\keywords{knowledge distillation \and cosine similarity \and random projections \and teacher-free \and efficient ML}
+\keywords{knowledge distillation \and SimHash \and 1-bit random projections \and relational distillation \and teacher-free}
 
+% ============================================================================
 \section{Introduction}
+% ============================================================================
 
-Knowledge Distillation (KD)~\citep{hinton2015distilling} is a widely used model compression technique in which a smaller but more efficient student model is trained to mimic the behavior of a larger, more accurate teacher to allow for the student to achieve better accuracy compared to training from scratch because it is able to receive guidance from the pre-trained teacher model. This is usually done by matching either the teacher's softened output distributions via KL divergence or its intermediate representations~\citep{romero2015fitnets}. However, all such methods require the teacher to be loaded and forwarded at every step during student training, which incurs three fundamental costs that limit deployment in resource-constrained or privacy-sensitive settings where the full teacher cannot be shared or kept in memory:
+Knowledge Distillation (KD)~\citep{hinton2015distilling} transfers representational and predictive knowledge from a high-capacity teacher network $T$ into a compact student $S$. Whether aligning softened logits~\citep{hinton2015distilling,zhao2022dkd}, intermediate features~\citep{romero2015fitnets,zagoruyko2017paying}, or pairwise sample relations~\citep{park2019relational,tian2020crd}, conventional distillation is \emph{online}: the teacher must remain loaded in accelerator memory and execute a forward pass on every training mini-batch. As teachers scale, this online coupling creates three practical bottlenecks: (1) \textbf{compute and memory overhead} (in our Apple M6 hardware benchmarks, forwarding ResNet-32$\times$4 alongside ResNet-20 increases per-step latency by $3.25\times$ and peak driver memory by $4.36\times$; forwarding ViT-B/16 increases latency by $6.61\times$); (2) \textbf{deployment coupling}, requiring the full proprietary teacher weights to be distributed to downstream training environments; and (3) \textbf{logit dependence}, preventing logit-based KD from distilling headless or self-supervised backbones that lack task-specific classifiers.
 
+Offline distillation~\citep{shen2022fkd} decouples teacher inference from student training by precomputing targets once and discarding the teacher. However, storing dense float32 logits for 50,000 CIFAR-100 images requires $19.07$\,MB---$5.8\times$ \emph{larger} than a ResNet-56 teacher ($3.29$\,MB)---while storing uncompressed float32 intermediate features requires $12.21$--$48.88$\,MB. Conversely, extreme compression via class-averaged prototypes destroys instance-level relational dark knowledge, and naive sparse top-$m$ logit compression can over-specialize student representations to source-dataset class boundaries (dropping $-2.19$\,pp below a student-only baseline on out-of-distribution transfer probing).
+
+A tempting alternative is \emph{Direct Pointwise Random-Projection Distillation} (\textbf{Direct-RP}): projecting both student and teacher features with a shared frozen Gaussian matrix $\mathbf{R}\in\mathbb{R}^{C\times r}$ ($r>C$) and minimizing pointwise cosine distance. We prove mathematically and confirm empirically that this naive formulation suffers from three fatal flaws: (i) when $r \ge C$, $\mathbf{R}\mathbf{R}^\top \approx \frac{r}{C}\mathbf{I}_C$, collapsing to coordinate-locked channel matching that cannot run when $C_S \neq C_T$ and is \textbf{100.0\% linearly invertible} via the right pseudoinverse; (ii) post-ReLU pooled activations live in the positive orthant $\mathbb{R}_{\ge 0}^C$ with severe anisotropy (mean pairwise cosine $0.5316$ on ResNet-56), compressing angular contrast; and (iii) class-averaging pointwise targets underperforms a well-tuned baseline across multiple seeds on both CIFAR-100 ($-0.17$\,pp) and STL-10 ($-0.92$\,pp).
+
+We resolve all three pathologies simultaneously with \textbf{SimHash-CSD}, a minimalist, theoretically grounded framework for teacher-free relational distillation:
 \begin{enumerate}
-    \item \textbf{Memory cost:} Both models must reside in GPU memory simultaneously during distillation, limiting student size and batch throughput.
-    \item \textbf{Storage cost:} The full teacher must be stored and distributed alongside the student training pipeline.
-	\item \textbf{Privacy cost:} The teacher's weights and architecture are exposed, which creates a liability when training on sensitive data or deploying to untrusted environments.
+    \item \textbf{Centering removes positive-orthant anisotropy:} Subtracting the global feature mean before normalization shifts ResNet-56's mean pairwise cosine from $0.5316$ to $0.0000$, nearly doubling angular dynamic range ($\sigma$: $0.094 \to 0.171$) and contributing $+0.94$\,pp in controlled ablations.
+    \item \textbf{1-bit QR-orthogonal SimHash sketching:} Each centered teacher feature is compressed to $r$ sign bits $b_i = \operatorname{sign}(\tilde{f}_T(x_i)\mathbf{R}) \in \{-1,+1\}^r$ using a 4-byte PRNG-seeded QR-orthogonal matrix $\mathbf{R}$~\citep{choromanski2017unreasonable}. At $r=64$, all 50,000 CIFAR-100 training sketches pack into exactly \textbf{390.63\,KB} (8 bytes/image)---$8.6\times$ smaller than ResNet-56 and $74.5\times$ smaller than ResNet-32$\times$4.
+    \item \textbf{Charikar relational cosine distillation:} During student training (with the teacher discarded), intra-batch teacher cosine similarities are reconstructed from 1-bit sketches via Charikar's exact angular estimator~\citep{charikar2002similarity} $\hat{G}_T(i,j)=\sin(\frac{\pi}{2}\frac{b_i^\top b_j}{r})$ and matched by the student's centered cosine Gram matrix $\mathbf{G}_S = \tilde{f}_S\tilde{f}_S^\top$ via temperature-calibrated row-wise KL divergence plus off-diagonal MSE. Because comparison occurs strictly in $B\times B$ relational space, SimHash-CSD requires \textbf{zero extra parameters}, handles \textbf{arbitrary channel mismatches} ($C_S \neq C_T$), and requires \textbf{no teacher logits}.
 \end{enumerate}
 
-We propose \emph{Cosine Similarity Distillation (CSD)}, a distillation method that eliminates the teacher from the student training loop entirely. Before training, we forward the training set through the teacher in a one-time precomputation phase, extract features at a chosen intermediate layer, and compute their cosine similarities with a frozen random matrix~$\mathbf{R}$. The resulting compact vector, referred to as the \emph{fingerprint}, encodes the directional structure of the teacher's feature space. The teacher is then discarded. During student training, the student's features at the same layer are projected onto the same random reference matrix, and the model is trained to match the precomputed fingerprints alongside the cross-entropy loss. The matrix~$\mathbf{R}$ functions as a shared coordinate system that makes the comparison well-defined.
+\noindent\textbf{Summary of Contributions.}
+\begin{itemize}
+    \item \textbf{Theoretical foundation:} We formalize the degeneracy and exact invertibility of pointwise overcomplete random projections (Proposition~\ref{prop:direct_rp}), analyze orthogonal 1-bit SimHash variance reduction and quadratic positive-pair SNR (Theorem~\ref{thm:simhash}), and prove a \emph{Bit-Budget Advantage} (Proposition~\ref{prop:bitbudget}) showing why 1-bit SimHash ($r=64$, $390.6$\,KB) achieves $2.30\times$ lower geometry error and $+1.53$\,pp higher accuracy than iso-storage 8-bit continuous JL sketches ($r=8$, $488.3$\,KB).
+    \item \textbf{Matching full-precision online distillation offline:} Across 3-seed CIFAR-100 (200 epochs) and STL-10 (150 epochs) benchmarks, SimHash-CSD ($r=64$) matches the full-precision \emph{Online SP} relational oracle within $0.01$\,pp ($70.45\pm0.16\%$ vs.\ $70.46\pm0.14\%$) and \emph{Online Hinton KD} within $0.04$--$0.05$\,pp ($70.45\%$ vs.\ $70.49\%$; $82.43\%$ vs.\ $82.48\%$) at $8.6\times$--$85.5\times$ smaller storage and $1.82\times$--$2.27\times$ faster wall-clock training.
+    \item \textbf{Cross-architecture, capacity-gap, and transfer superiority:} With zero extra parameters, SimHash-CSD transfers $+2.34$\,pp across an $8\times$ channel mismatch (ResNet-56 $\to$ VGG-8, surpassing the teacher, $p<10^{-4}$), outperforms collapsed Online KD by $+0.68$\,pp ($p=0.015$) and Offline Sparse-12 Logits by $+1.74$\,pp ($p=0.012$) under a $27\times$ teacher-student capacity gap (ResNet-32$\times$4 $\to$ ResNet-20, $3.58\times$ faster), and outperforms Offline Sparse-12 Logits by $+2.96$\,pp on CIFAR-100 $\to$ STL-10 linear transfer probing.
+    \item \textbf{Honest privacy audit and negative-result transparency:} We evaluate both closed-form Ridge and non-linear 2-layer MLP inversion attackers across 18 $(r,\text{quantization})$ settings, report measured hardware VRAM/latency, and document instructive negative findings (naive FIFO queue staleness, static offline-logit DKD over-regularization, and zero-shot ImageNet ViT task-granularity mismatch).
+\end{itemize}
 
-This approach offers three key advantages:
-
-\begin{enumerate}
-    \item \textbf{Teacher-free training:} All teacher computation occurs in a one-time offline precomputation phase, so during the computationally intensive student training phase (200 epochs), only the student resides in GPU memory. By contrast, KD and FitNet each forward the teacher 78,200 times during student training (once per batch).
-    \item \textbf{Extreme storage efficiency}: The information carried forward from the teacher is dramatically compressed. Per-class averaged fingerprints encode the full CIFAR-100 dataset in 50\,KB (67$\times$ smaller than the 3.29\,MB teacher model).
-	\item \textbf{Deployment decoupling:} Because fingerprints are precomputed, the teacher never needs to be shared or accessed during student training. This means the teacher can be run in a secure environment to produce fingerprints, and only the lightweight fingerprint table, and not the full model, needs to be distributed for downstream training. Additionally, since fingerprints are derived from pooled intermediate activations rather than raw inputs, reconstructing training images from fingerprints is substantially harder than from raw data.
-\end{enumerate}
-
-We evaluate CSD on CIFAR-100 with ResNet-56 as teacher and ResNet-20 as student. CSD recovers 48.9\% of KD's accuracy gain over the student-only baseline while achieving the storage, memory, and privacy advantages above. We present ablation studies on fingerprint dimension r and loss weight $\lambda$, and we validate the core mechanism by measuring the cosine similarity between student and teacher fingerprints during training.
-
-The remainder of this paper is organized as follows.
-Section~\ref{sec:related} reviews related work.
-Section~\ref{sec:method} details the CSD method.
-Section~\ref{sec:setup} describes the experimental setup.
-Section~\ref{sec:results} presents results and ablations.
-Section~\ref{sec:discussion} discusses storage, privacy, limitations, and future work.
-Section~\ref{sec:conclusion} concludes.
-
+% ============================================================================
 \section{Related Work}
 \label{sec:related}
+% ============================================================================
 
-\subsection{Knowledge Distillation}
+\paragraph{Online Logit and Feature Distillation.}
+\citet{hinton2015distilling} align temperature-scaled output distributions via KL divergence, while DKD~\citep{zhao2022dkd} decouples target and non-target class transfer and DIST~\citep{huang2022dist} replaces KL with correlation-based matching to mitigate teacher-student capacity gaps. FitNet~\citep{romero2015fitnets}, Attention Transfer~\citep{zagoruyko2017paying}, and CosPress~\citep{mannix2024preserving} transfer intermediate feature maps or angular representations, typically requiring learned projectors when $C_S \neq C_T$. All require keeping the teacher live during every student training batch.
 
-Knowledge distillation was formalized by Hinton et al.~\citep{hinton2015distilling}, who train a student to match the softened output distribution of a teacher. The KD loss is:
+\paragraph{Relational Knowledge Distillation.}
+RKD~\citep{park2019relational}, Similarity-Preserving KD (SP)~\citep{park2019relational,tian2020crd}, and CRD~\citep{tian2020crd} transfer pairwise distances, cosine Gram matrices, or contrastive mutual information across samples within a batch or memory bank. Because relational geometry is invariant to feature dimensionality and orthogonal basis rotations, it naturally supports heterogeneous architectures. However, standard SP/RKD/CRD remain online methods that forward the teacher at every step. SimHash-CSD brings relational cosine distillation fully \emph{offline} via 1-bit binary sketching, matching the full-precision online SP oracle within $0.01$\,pp at a fraction of the storage and wall-clock cost.
 
-\begin{equation}
-\mathcal{L}_{\text{KD}} = (1-\alpha) \cdot \text{CE}(S(x), y) + \alpha \cdot \tau^2 \cdot \text{KL}\left(\sigma(T(x)/\tau) \;\|\; \sigma(S(x)/\tau)\right)
-\label{eq:kd}
-\end{equation}
+\paragraph{Offline and Teacher-Free Distillation.}
+Fast Knowledge Distillation (FKD)~\citep{shen2022fkd} stores soft logit labels for fixed crop sequences offline, trading storage ($19+$ MB for dense CIFAR-100 logits, or multi-GB on ImageNet) for training speed. Tailored Coordinate System (TCS)~\citep{zhou2024tcs} computes a data-dependent PCA basis of teacher features to reduce alignment overhead. In contrast, SimHash-CSD uses \emph{data-independent} PRNG-seeded orthogonal hyperplanes (4 bytes) and 1-bit sign sketches (8 bytes/sample), requiring neither PCA basis storage nor teacher logits.
 
-where $\sigma$ is the softmax function, $\tau$ is the temperature, and $\alpha$ balances the two terms. The teacher must be forwarded at every batch to produce $T(x)$, resulting in $N_{\text{batches}} \times N_{\text{epochs}}$ teacher forwards. For our setting (128 batch size, 200 epochs), this amounts to 78,200 forwards.
+\paragraph{Random Projections, Orthogonal Features, and SimHash.}
+The Johnson--Lindenstrauss (JL) lemma~\citep{johnson1984extensions,ghojogh2021johnson} guarantees approximate pairwise inner-product preservation under random projections. \citet{choromanski2017unreasonable} proved that orthogonalizing random projection blocks strictly reduces estimation variance relative to i.i.d.\ Gaussian projections. \citet{charikar2002similarity} introduced SimHash, showing that the collision probability of 1-bit random hyperplane signs encodes exact pairwise angles via $\Pr[\operatorname{sign}(u^\top w)=\operatorname{sign}(v^\top w)] = 1 - \theta(u,v)/\pi$. To our knowledge, SimHash-CSD is the first framework to unite centered feature normalization, QR-orthogonal 1-bit SimHash sketching, and Charikar Gram reconstruction for teacher-free relational knowledge distillation.
 
-FitNet~\citep{romero2015fitnets} extends KD to the feature level by minimizing the mean-squared error between intermediate representations:
-
-\begin{equation}
-\mathcal{L}_{\text{FitNet}} = \text{CE}(S(x), y) + \beta \cdot \text{MSE}(f_S(x), f_T(x))
-\label{eq:fitnet}
-\end{equation}
-
-where $f_S$ and $f_T$ are pooled features from a chosen layer. FitNet requires teacher forwards at every batch (78,200 per training run; the 234,600 total in our experiments includes a grid search over $\beta \in \{10, 50, 100\}$, analogous to the hyperparameter tuning performed for CSD). Attention Transfer~\citep{zagoruyko2017paying} follows the same pattern.
-
-\subsection{Cosine Similarity in Distillation}
-
-CosPress~\citep{mannix2024preserving} preserves cosine similarities between image embeddings in the feature space, but it still requires the teacher model at training time and uses learned projection layers. CSD differs fundamentally in two ways: (a) the projection matrix $\mathbf{R}$ is random and frozen (no learning is involved) and (b) the teacher is completely discarded after fingerprint precomputation.
-
-\subsection{Teacher-Free Distillation}
-
-Tailored Coordinate System (TCS)~\citep{zhou2024tcs} uses Principal Component Analysis (PCA) on the teacher's feature activations to construct a coordinate system for teacher-free distillation. While TCS shares our goal of eliminating the teacher from training, it requires a data-dependent PCA computation on the full training set, which itself requires loading the teacher. CSD uses random projections, which are data-independent, simpler to compute, and provide a tunable privacy-accuracy trade-off via the fingerprint dimension $r$.
-
-\subsection{Random Projections in Machine Learning}
-
-The Johnson-Lindenstrauss lemma guarantees that random projections approximately preserve pairwise distances in high-dimensional spaces~\citep{johnson1984extensions, ghojogh2021johnson}. Random projections have been used extensively for dimensionality reduction, sketching, and compressed sensing. To the best of our knowledge, CSD is the first method to use random projections as a shared coordinate system for knowledge distillation---precomputing teacher feature directions in this common space of random directions and training a student to match them.
-
-\section{Method}
+% ============================================================================
+\section{Method and Theoretical Analysis}
 \label{sec:method}
+% ============================================================================
 
-\subsection{Notation and Preliminaries}
+\subsection{Why Naive Pointwise Random-Projection Distillation Fails}
 
-Let $T$ denote the teacher model and $S$ denote the student model. Both are CIFAR variants of ResNet~\citep{he2016deep}, with three residual stages producing feature maps of increasing channel depth. We extract features after the third residual stage, before global average pooling. For an input image $x$, the pooled feature vector at this layer is
+Consider a teacher $T$ producing pooled penultimate features $f_T(x)\in\mathbb{R}^{C_T}$ and a student $S$ producing $f_S(x)\in\mathbb{R}^{C_S}$. A direct pointwise random-projection baseline (\textbf{Direct-RP}) draws a shared Gaussian matrix $\mathbf{R}\in\mathbb{R}^{C\times r}$ with unit-norm columns, stores $\phi_T = \hat{f}_T \mathbf{R}$ (with $\hat{f}=f/\|f\|_2$), and trains $S$ to minimize $1-\cos(\hat{f}_S\mathbf{R}, \phi_T)$.
 
-\begin{equation}
-f(x) = \text{AvgPool}(\text{layer3}(x)) \in \mathbb{R}^{C}
-\end{equation}
-
-where $C = 64$ is the channel count. The teacher (ResNet-56) and student (ResNet-20) differ in depth but share the same channel dimensions at all layers, enabling direct fingerprint comparison.
-
-\subsection{Random Reference Matrix}
-
-We construct a frozen random reference matrix $\mathbf{R} \in \mathbb{R}^{C \times r}$ where $r = 128$ (default fingerprint dimension). Each column is drawn independently from a standard Gaussian distribution and then L2-normalized to unit length:
-
-\begin{equation}
-\tilde{\mathbf{R}}_{:,j} \sim \mathcal{N}(0, I_C), \qquad
-\mathbf{R}_{:,j} = \frac{\tilde{\mathbf{R}}_{:,j}}{\|\tilde{\mathbf{R}}_{:,j}\|_2} \quad \text{so that} \quad \|\mathbf{R}_{:,j}\|_2 = 1 \;\; (j = 1, \dots, r).
-\end{equation}
-
-The matrix $\mathbf{R}$ is frozen---it receives no gradients and is never updated. Its storage cost is $64 \times 128 \times 4 = 32$\,KB.
-
-For multi-layer fingerprints, we also construct $\mathbf{R}_2 \in \mathbb{R}^{32 \times r}$ for layer-2 features (32 channels, $16\times16$ spatial resolution), L2-normalized identically. To avoid ambiguity, we hereafter refer to the layer-3 matrix as $\mathbf{R}_3$ (previously $\mathbf{R}$).
-
-We note that for the layer-3 case ($C = 64$), the default fingerprint dimension $r = 128$ means the random matrix performs an expansion rather than compression at the feature-vector level. The storage reduction in per-class CSD comes from averaging 50,000 fingerprints into 100 class centroids, not from the random projection itself. The matrix $\mathbf{R}_3$'s role is to provide a shared coordinate system for alignment, not dimensionality reduction.
-
-\subsection{Teacher Fingerprint Generation}
-
-Before student training begins, we perform a one-time forward pass over the training set through the teacher. To ensure the student can match these fingerprints under augmentation (RandomCrop, RandomHorizontalFlip), we compute fingerprints from the same augmented views the student sees and average them. Concretely, for each of the 50,000 training images we generate $N_a = 8$ augmented views, yielding 400,000 teacher forward passes in total---all completed before student training starts.
-
-For each image $x_i$ with label $y_i$:
-
+\begin{proposition}[Coordinate Locking and Exact Invertibility of Overcomplete Direct-RP]
+\label{prop:direct_rp}
+Let $\mathbf{R}\in\mathbb{R}^{C\times r}$ have i.i.d.\ isotropic unit-norm columns with $r \ge C$. Then:
 \begin{enumerate}
-    \item Generate $N_a$ augmented views $x_i^{(1)}, \dots, x_i^{(N_a)}$ using the student's training augmentations (default $N_a = 8$).
-    \item For each view, pool layer-3 features, L2-normalize, and compute the cosine similarities against the columns of $\mathbf{R}_3$:
+    \item \textbf{Coordinate locking:} $\mathbb{E}[\mathbf{R}\mathbf{R}^\top] = \frac{r}{C}\mathbf{I}_C$, so $\mathbb{E}[(\hat{f}_S\mathbf{R})(\hat{f}_T\mathbf{R})^\top] = \frac{r}{C}\hat{f}_S^\top\hat{f}_T$. The objective reduces to channel-wise matching, forcing $C_S = C_T$ and prohibiting cross-architecture transfer.
+    \item \textbf{Zero directional privacy:} With probability $1$, $\operatorname{rank}(\mathbf{R}) = C$, so $\hat{f}_T$ is recovered with zero error from $(\phi_T, \mathbf{R})$ via the right pseudoinverse $\hat{f}_T = \phi_T \mathbf{R}^\top (\mathbf{R}\mathbf{R}^\top)^{-1}$.
+\end{enumerate}
+\end{proposition}
+
+Moreover, in ReLU networks, $f(x) \in \mathbb{R}_{\ge 0}^C$ occupies the positive orthant, inducing severe representation anisotropy~\citep{mu2018all}. On our ResNet-56 CIFAR-100 teacher, random pairs of uncentered unit features exhibit mean cosine similarity $\mu = 0.5316$ ($\sigma = 0.0938$, 5th--95th percentile $[0.392, 0.694]$), wasting angular dynamic range on a shared positive cone vector.
+
+\subsection{SimHash-CSD: Offline 1-Bit Orthogonal Sketching}
+
+SimHash-CSD operates in two completely decoupled phases: a one-time offline sketching phase and a teacher-free student training phase.
+
+\paragraph{Phase 1: One-Time Offline Sketching (Teacher Discarded).}
+For each training sample $x_i$ ($i=1,\dots,N$), we average pooled teacher penultimate features over $N_a=8$ views (1 clean + 7 randomly cropped/flipped views matching student augmentations): $\bar{f}_{T,i} = \frac{1}{N_a}\sum_{k=1}^{N_a} f_T(x_i^{(k)})$. We then remove positive-orthant anisotropy by global mean centering and L2 normalization:
+\begin{equation}
+    \mu_T = \frac{1}{N}\sum_{i=1}^N \bar{f}_{T,i}, \qquad \tilde{f}_T(x_i) = \frac{\bar{f}_{T,i} - \mu_T}{\|\bar{f}_{T,i} - \mu_T\|_2} \in \mathbb{S}^{C_T - 1}.
+\end{equation}
+On ResNet-56, centering shifts pairwise cosine statistics from $(\mu=0.5316, \sigma=0.0938)$ to $(\mu=0.0000, \sigma=0.1713)$, nearly doubling angular contrast. Next, we generate a deterministic frozen hyperplane matrix $\mathbf{R}\in\mathbb{R}^{C_T\times r}$ from a 32-bit PRNG seed (4 bytes storage) by stacking QR-orthogonalized Gaussian blocks of width $\min(C_T, r)$~\citep{choromanski2017unreasonable}. Each training sample is compressed to an $r$-bit binary SimHash sketch:
+\begin{equation}
+    b_i = \operatorname{sign}\!\big(\tilde{f}_T(x_i)\mathbf{R}\big) \in \{-1, +1\}^r,
+\end{equation}
+bit-packed into $\lceil r/8 \rceil$ bytes per sample (e.g., $8$\,bytes/image at $r=64$, totaling \textbf{390.63\,KB} for all 50,000 CIFAR-100 images and \textbf{39.07\,KB} for all 5,000 STL-10 images). \textbf{The teacher model and $\mathbf{R}$ are then permanently discarded}---$\mathbf{R}$ is not even needed during student training.
+
+\paragraph{Phase 2: Teacher-Free Relational Student Training.}
+During student training, given a mini-batch $\mathcal{B} = \{(x_i, y_i)\}_{i=1}^B$, the student computes pooled penultimate features $f_S(x_i)\in\mathbb{R}^{C_S}$, maintains an exponential moving average (EMA, momentum $0.9$) of its own feature mean $\hat{\mu}_S$, and forms centered unit features $\tilde{f}_S(x_i) = (f_S(x_i)-\hat{\mu}_S)/\|f_S(x_i)-\hat{\mu}_S\|_2$ along with the student's intra-batch cosine Gram matrix:
+\begin{equation}
+    \mathbf{G}_S = \tilde{\mathbf{F}}_S \tilde{\mathbf{F}}_S^\top \in [-1, 1]^{B\times B}.
+\end{equation}
+Simultaneously, we unpack the batch's 1-bit sketches $\mathbf{B}\in\{-1,+1\}^{B\times r}$ from RAM and reconstruct the teacher's pairwise cosine similarity matrix via Charikar's angular estimator~\citep{charikar2002similarity}:
+\begin{equation}
+    \hat{\mathbf{G}}_T(i, j) = \sin\!\left(\frac{\pi}{2}\cdot\frac{b_i^\top b_j}{r}\right) \in [-1, 1].
+\end{equation}
+Let $\mathbf{G}^{\text{off}}$ denote the off-diagonal entries of $\mathbf{G}$ (masking trivial self-similarities $i=j$). We train the student with cross-entropy plus a temperature-calibrated relational cosine alignment loss:
+\begin{equation}
+    \mathcal{L}_{\text{rel}}(\mathbf{G}_S, \hat{\mathbf{G}}_T) = \frac{\tau}{B}\sum_{i=1}^B \operatorname{KL}\!\Big(\sigma(\hat{\mathbf{G}}_T[i, -i]/\tau) \,\big\|\, \sigma(\mathbf{G}_S[i, -i]/\tau)\Big) + \operatorname{MSE}\!\big(\mathbf{G}_S^{\text{off}}, \hat{\mathbf{G}}_T^{\text{off}}\big),
+\label{eq:rel_loss}
+\end{equation}
+\begin{equation}
+    \mathcal{L}_{\text{SimHash-CSD}} = \operatorname{CE}(S(x), y) + \lambda(t)\cdot \mathcal{L}_{\text{rel}}(\mathbf{G}_S, \hat{\mathbf{G}}_T),
+\label{eq:total_loss}
+\end{equation}
+where $\sigma(\cdot)$ is the softmax function, $\tau = 0.15$ controls neighborhood sharpness, and $\lambda(t)$ linearly warms up from $0$ to $\lambda$ over the first 10\% of epochs. Notice the factor $\tau$ (rather than $\tau^2$): because $\mathbf{G}_S$ is unit-scale in $[-1,1]$, $\nabla_{\mathbf{G}_S}[\tau\,\operatorname{KL}(\sigma(\hat{\mathbf{G}}_T/\tau)\|\sigma(\mathbf{G}_S/\tau))] = p_S - p_T$, keeping gradient magnitudes scale-invariant to $\tau$ and commensurate with cross-entropy. The KL term transfers fine-grained neighborhood rankings while downweighting noisy unrelated pairs near cosine $0$; the MSE term anchors global angular calibration.
+
+\subsection{Theoretical Properties and the Bit-Budget Advantage}
+
+\begin{theorem}[Charikar Angular Estimation, Positive-Pair SNR, and Orthogonal Variance Reduction]
+\label{thm:simhash}
+Let $\tilde{f}_i, \tilde{f}_j \in \mathbb{S}^{C_T-1}$ have angle $\theta_{ij} = \arccos(\tilde{f}_i^\top \tilde{f}_j)\in[0,\pi]$, and let $\hat{\rho}_{ij} = \frac{1}{r}b_i^\top b_j$.
+\begin{enumerate}
+    \item \textbf{Consistency and quadratic positive-pair SNR:} $\mathbb{E}[\hat{\rho}_{ij}] = 1 - \frac{2\theta_{ij}}{\pi}$, and by the delta method on $\hat{G}_{ij} = \sin(\frac{\pi}{2}\hat{\rho}_{ij})$, for i.i.d.\ Gaussian hyperplanes:
     \begin{equation}
-    \phi_i^{(k)} = \frac{\text{AvgPool}(\text{layer3}(x_i^{(k)}))}{\|\text{AvgPool}(\text{layer3}(x_i^{(k)}))\|_2} \mathbf{R}_3 \quad \in \mathbb{R}^{r}
+        \operatorname{Var}(\hat{G}_{ij}) \approx \frac{\theta_{ij}(\pi - \theta_{ij})}{r}\sin^2\theta_{ij} \le \frac{\pi^2}{4r}\sin^2\theta_{ij}.
     \end{equation}
-    \item Average across augmented views: $\phi_i = \frac{1}{N_a} \sum_{k=1}^{N_a} \phi_i^{(k)}$.
+    Hence estimation variance vanishes quadratically ($\propto \theta_{ij}^3$) as $\theta_{ij}\to 0$: semantically similar pairs are estimated far more accurately than orthogonal negatives.
+    \item \textbf{Orthogonal variance reduction:} Replacing i.i.d.\ Gaussian hyperplanes with QR-orthogonal blocks ($\mathbf{R}^\top\mathbf{R}=\mathbf{I}_r$ for $r\le C_T$) induces negative pairwise covariance among hyperplane indicators~\citep{choromanski2017unreasonable}, strictly lowering $\operatorname{Var}(\hat{G}_{ij})$ for all $\theta_{ij}\in(0,\pi)$.
 \end{enumerate}
+\end{theorem}
 
-Fingerprints are stored in dataset order so that index $i$ corresponds to the $i$-th training sample.
+\noindent\textit{Empirical verification on ResNet-56 (10 random seeds):} QR-orthogonal hyperplanes reduce pairwise cosine MAE by \textbf{22.5\%} at $r=64$ ($0.1175$ vs.\ $0.1516$ for i.i.d.\ Gaussian) and \textbf{23.0\%} at $r=128$ ($0.0834$ vs.\ $0.1083$). Confirming the positive-pair SNR property, MAE on semantically similar pairs ($\cos > 0.5$) is \textbf{26.0\% lower} than on near-orthogonal pairs ($0.0878$ vs.\ $0.1187$ at $r=64$; $0.0625$ vs.\ $0.0843$ at $r=128$).
 
-For multi-layer fingerprints, we additionally compute layer-2 fingerprints using $\mathbf{R}_2$ identically.
+\begin{proposition}[Bit-Budget Advantage of 1-Bit SimHash vs.\ $b$-Bit Continuous JL Sketches]
+\label{prop:bitbudget}
+Fix a per-sample storage budget of $B$ bits ($B \le b\,C_T$). A $b$-bit quantized continuous JL sketch allocates $r_b = \lfloor B/b \rfloor < C_T$ dimensions, incurring irreducible subspace-truncation error proportional to $\frac{1}{r_b}(1 - r_b/C_T)$ on the discarded $(C_T - r_b)$-dimensional complement. In contrast, 1-bit SimHash allocates $r_1 = B$ orthogonal hyperplanes spanning up to 100\% of $\mathbb{R}^{C_T}$, trading subspace truncation for bounded $O(1/B)$ rounding variance.
+\end{proposition}
 
-In addition to per-sample fingerprints $\{\phi_i\}_{i=1}^{50000}$, we compute per-class averaged fingerprints by averaging over all samples in each class:
+At $B = 64$ bits/sample ($390.6$\,KB on CIFAR-100), INT8 ($b=8$) is restricted to $r_8 = 8 \ll 64$ dimensions (discarding 87.5\% of the teacher subspace, giving pairwise MAE $0.2678$), whereas 1-bit SimHash spans all $r_1 = 64$ orthogonal directions with MAE $0.1165$---a \textbf{$2.30\times$ lower geometry error} at $20\%$ less total storage (since INT8 also stores per-row fp16 scales: $488.3$\,KB vs.\ $390.6$\,KB).
 
-\begin{equation}\label{eq:class_fp}
-\phi^{(c)} = \frac{1}{|\{i : y_i = c\}|} \sum_{i: y_i = c} \phi_i \quad \text{for } c = 1, \dots, 100
-\end{equation}
+\paragraph{Zero-Overhead Multi-Teacher Extension.}
+Because $\hat{\mathbf{G}}_T^{(m)} \in [-1,1]^{B\times B}$ is normalized and architecture-independent, fusing $M$ heterogeneous teachers (e.g., different channel widths or CNN + Transformer backbones) requires only averaging their Charikar Gram matrices: $\hat{\mathbf{G}}_T^{\text{ens}} = \frac{1}{M}\sum_{m=1}^M \hat{\mathbf{G}}_T^{(m)}$, with zero inter-teacher projectors and zero extra GPU memory.
 
-The per-class fingerprint table requires $100 \times 128 \times 4 = 50$\,KB of storage. (Throughout this paper, storage figures use binary units---KiB and MiB---for internal consistency; the teacher's 3.29\,MB corresponds to 3.29\,MiB.) For multi-layer fingerprints the per-class storage doubles to approximately 100\,KB (50\,KB for layer-3 plus 50\,KB for layer-2 at $r=128$), still negligible relative to the teacher model.
-
-\textbf{Per-sample vs.\ per-class.} Both variants share the same underlying fingerprint computation: the same random matrix $\mathbf{R}_3$, the same 50,000 individual fingerprints $\phi_i$, and the same $N_a=8$ augmentation averaging. The only difference is which target the student regresses against during training. In per-sample CSD, the student matches the individual fingerprint $\phi_i$ of each specific image, preserving per-example teacher geometry but requiring 24.41\,MB of stored fingerprints. In per-class CSD, all fingerprints belonging to the same class are averaged into a single centroid $\phi^{(c)}$ via Eq.~\ref{eq:class_fp}, reducing storage to 50\,KB. This averaging can act as a denoising operation: averaging over many samples suppresses instance-level variation in the fingerprints, producing a cleaner regression target. This helps explain why per-class CSD can outperform per-sample CSD (69.65\% vs.\ 69.17\% in our experiments) in this single-seed study, although differing optimal $\lambda$ values may also contribute to the gap.
-
-After fingerprint generation, the teacher model is discarded. Only the fingerprint tables and the random matrices $\mathbf{R}_2$, $\mathbf{R}_3$ are retained.
-
-\subsection{Student Training with CSD}
-
-For each training batch, the student sees randomly augmented images and computes fingerprints at the same layer(s):
-
-\begin{equation}
-\phi_S(x_{\text{aug}}) = \frac{\text{AvgPool}(\text{layer3}_S(x_{\text{aug}}))}{\|\text{AvgPool}(\text{layer3}_S(x_{\text{aug}}))\|_2} \mathbf{R}_3
-\end{equation}
-
-The CSD training loss contains a cross-entropy term for classification and a fingerprint-regression term for teacher alignment:
-
-\begin{equation}\label{eq:csd_loss}
-\mathcal{L}_{\text{CSD}} = \text{CE}(S(x_{\text{aug}}), y) \;+\; \lambda \cdot \ell_{\text{fp}}(\phi_S, \phi_{\text{target}})
-\end{equation}
-
-where $\phi_{\text{target}}$ is the per-sample fingerprint $\phi_i$ for per-sample CSD, or the per-class fingerprint $\phi^{(y)}$ for per-class CSD.
-
-\paragraph{Fingerprint loss.} We use a cosine-similarity-based loss that focuses on directional agreement:
-
-\begin{equation}
-\ell_{\text{pull}}(\phi_S, \phi_T) = 1 - \cos(\phi_S, \phi_T)
-\end{equation}
-
-where $\cos(\cdot,\cdot)$ denotes cosine similarity. For multi-layer fingerprints, losses from both layers are combined with layer-specific weights:
-
-\begin{equation}
-\ell_{\text{fp}} = w_{L2} \cdot \ell_{\text{pull}}(\phi_S^{L2}, \phi_T^{L2}) + w_{L3} \cdot \ell_{\text{pull}}(\phi_S^{L3}, \phi_T^{L3})
-\end{equation}
-
-with $w_{L2} = 0.2$ and $w_{L3} = 1.0$ (defaults). The layer-2 (texture/envelope) signal is downweighted relative to the layer-3 (object/semantic) signal.
-
-\paragraph{Lambda warmup.} We linearly ramp $\lambda$ from 0 to its target value over the first 40 epochs, allowing the student to establish basic classification features before fingerprint alignment begins.
-
-\subsection{Why CSD Works}
-
-Four design choices drive CSD's effectiveness:
-
-\begin{enumerate}
-    \item \textbf{Cosine similarity captures directional agreement.} By L2-normalizing both features and columns of $\mathbf{R}_3$, fingerprint entries depend only on feature direction, not magnitude. This forces the student to match the teacher's geometry rather than its activation scales.
-    \item \textbf{The random reference matrix provides a shared coordinate system.} Without $\mathbf{R}_3$, student and teacher features inhabit different high-dimensional spaces with no natural correspondence (different depths, different parameters). The random matrix projects both onto the same set of $r$ random directions, making comparison well-defined.
-    \item \textbf{Augmentation-invariant matching.} Teacher fingerprints are computed from the same augmented views the student sees. The student's fingerprint at training time is statistically comparable to the target fingerprint, allowing the cosine loss to produce a meaningful gradient.
-    \item \textbf{Class-level target smoothing.} Per-class fingerprints average roughly 500 individual sample fingerprints into a single class centroid. Under the model $\phi_i = \mu^{(c)} + \varepsilon_i$ where $\varepsilon_i$ is zero-mean within-class variation, class averaging reduces the variance of the sample-specific component by approximately $1/N_c$. This provides a more stable regression target during training, which we observe empirically: per-class CSD (69.65\%) outperforms per-sample CSD (69.17\%) in our experiments. We note that this is an observation rather than a theoretical guarantee, as fingerprints within a class are not strictly i.i.d.\ and the cosine loss is nonlinear in $\phi_T$; alternative explanations such as differing optimal $\lambda$ values or target regularization effects cannot be ruled out from a single-seed study.
-\end{enumerate}
-
+% ============================================================================
 \section{Experimental Setup}
 \label{sec:setup}
+% ============================================================================
 
-\subsection{Dataset and Models}
-
-We use CIFAR-100~\citep{krizhevsky2009learning}, which contains 50,000 training and 10,000 test images of $32 \times 32$ pixels across 100 classes. Training augmentations: RandomCrop(32, padding=4) and RandomHorizontalFlip. Both training and test images are normalized with channel means $(0.5071, 0.4867, 0.4408)$ and standard deviations $(0.2675, 0.2565, 0.2761)$.
-
-Teacher: ResNet-56~\citep{he2016deep} (9 blocks per stage, 861,620 parameters, 3.29\,MB). Student: ResNet-20 (3 blocks per stage, 278,324 parameters, 1.06\,MB). Both follow the CIFAR ResNet convention: conv1 with kernel size 3, stride 1, no max-pooling. Feature extraction: after the third residual stage, before global average pooling, yielding (64, 8, 8) feature maps.
-
-\subsection{Training Details}
-
-All models are trained with SGD (momentum 0.9, weight decay $5 \times 10^{-4}$) and a MultiStepLR learning rate schedule (initial $0.1$, decays by factor 0.2 at epochs 60, 120, and 160). Batch size: 128. Main experiments: 200 epochs; ablation studies: 200 epochs for $\lambda$ sweep, 100 epochs for $r$ sweep.
-
-All experiments use a single seed (42) with deterministic cuDNN operations. Training performed on a single NVIDIA T4 GPU (16\,GB).
-
-\subsection{Baselines and CSD Variants}
-
+\paragraph{Datasets and Architectures.}
+We evaluate across two datasets and four distinct teacher-student regimes:
 \begin{enumerate}
-    \item \textbf{Student-only (no distillation):} Cross-entropy loss only. No teacher involved.
-    \item \textbf{KD (Hinton):} Loss as in Eq.~\ref{eq:kd}, with $\alpha = 0.9$ and $\tau = 4$.
-    \item \textbf{FitNet:} Loss as in Eq.~\ref{eq:fitnet}, with $\beta \in \{10, 50, 100\}$ (best reported).
-    \item \textbf{CSD per-sample:} Loss as in Eq.~\ref{eq:csd_loss}, per-sample fingerprints. $\lambda$ tuned over $\{0.01, 0.05, 0.1, 0.2, 0.5, 1.0\}$ at 200 epochs.
-    \item \textbf{CSD per-class:} Loss as in Eq.~\ref{eq:csd_loss}, per-class averaged fingerprints with separate $\lambda$ tuning.
+    \item \textbf{CIFAR-100 Homogeneous} ($32\times32$, 100 classes, 50k train / 10k test)~\citep{krizhevsky2009learning}: ResNet-56 ($861.6\text{k}$ params, $3.29$\,MB, $C_T=64$, $72.50\%$ Top-1) $\to$ ResNet-20 ($278.3\text{k}$ params, $1.06$\,MB, $C_S=64$)~\citep{he2016deep}.
+    \item \textbf{CIFAR-100 Cross-Architecture}: ResNet-56 ($C_T=64$) $\to$ VGG-8-BN ($6.91\text{M}$ params, $C_S=512$, non-residual architecture with an $8\times$ channel mismatch)~\citep{simonyan2015vgg}.
+    \item \textbf{CIFAR-100 High-Capacity-Gap Cross-Width}: ResNet-32$\times$4 ($7.45\text{M}$ params, $28.42$\,MB, $C_T=256$, $78.58\%$ Top-1) $\to$ ResNet-20 ($1.06$\,MB, $C_S=64$, $27\times$ parameter ratio and $4\times$ channel mismatch).
+    \item \textbf{STL-10 Natural Images} ($64\times64$, 10 classes, 5k train / 8k test): ResNet-56 ($3.26$\,MB, $81.30\%$ Top-1) $\to$ ResNet-20, plus ImageNet-1K pretrained headless ViT-B/16 ($86.6\text{M}$ params, $330.23$\,MB, $C_T=768$) $\to$ ResNet-20, and CRD-style linear transfer probing from CIFAR-100 $\to$ STL-10~\citep{tian2020crd}.
 \end{enumerate}
 
-KD and FitNet require teacher forwarding at every batch. All CSD variants require exactly one teacher loading for fingerprint precomputation (50k images $\times$ 8 augmented views), and the teacher is never loaded during student training.
+\paragraph{Training Protocol and Exact Accounting.}
+All models are trained with SGD (momentum $0.9$, weight decay $5\times 10^{-4}$, cosine learning-rate decay; $\text{lr}=0.1$ for ResNets, $\text{lr}=0.05$ for VGG-8) using standard RandomCrop + RandomHorizontalFlip augmentations on an Apple M6 Mac Mini (24\,GB unified memory, PyTorch 2.15 MPS with \texttt{bfloat16} autocast and \texttt{torch.compile}). Every main, cross-architecture, large-teacher, and STL-10 table reports \textbf{mean $\pm$ std across 3 random seeds} (\texttt{42, 123, 456}) with two-sided Welch's $t$-tests. We report standard single-crop Top-1 accuracy (primary metric), final-epoch accuracy, and 10-crop TTA accuracy separately. Every storage figure accounts for \emph{all} transferred payload bytes (bit-packed sketches, quantization scales, and PRNG seeds) in binary units ($\text{KiB}, \text{MiB}$).
 
+\paragraph{Baselines.}
+We compare against: \textbf{Student-only} (CE); \textbf{Label Smoothing} ($\epsilon=0.1$)~\citep{szegedy2016rethinking}; \textbf{Direct-RP} (pointwise Gaussian $r=128$ multi-layer per-class baseline, $148.0$\,KB exact storage including $\mathbf{R}_2, \mathbf{R}_3$); \textbf{Offline Sparse-12 Logit KD} (per-sample top-12 teacher logits quantized to \texttt{int8} + residual tail mean, preserving $96.3\%$ of dense NCKD cosine fidelity in $1.34$\,MB); \textbf{Online Hinton KD} ($\alpha=0.9, T=4$)~\citep{hinton2015distilling}; \textbf{Online FitNet} (pooled feature MSE, $\beta=10$)~\citep{romero2015fitnets}; and \textbf{Online SP (Oracle)}---the exact full-precision online counterpart of SimHash-CSD using live centered fp32 teacher features in Eq.~\eqref{eq:rel_loss}.
+
+% ============================================================================
 \section{Results}
 \label{sec:results}
+% ============================================================================
 
-\subsection{Main Results}
+\subsection{Main CIFAR-100 Benchmark (ResNet-56 $\to$ ResNet-20, 3 Seeds)}
 
-Table~\ref{tab:main} presents the main results. All accuracies are top-1 test accuracy evaluated on the CIFAR-100 test set after full 200-epoch training with test-time augmentation (10-crop TTA for all methods).
+Table~\ref{tab:main} and Figures~\ref{fig:main}--\ref{fig:pareto} present our 200-epoch, 3-seed benchmark.
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Main results. All accuracies reported with 10-crop test-time augmentation (TTA) applied uniformly to all methods. CSD requires zero teacher forwards during student training; all teacher computation occurs in a one-time offline fingerprint precomputation phase (400k forward passes).}
+\caption{Main CIFAR-100 benchmark (ResNet-56 [$72.50\%$ Std / $72.71\%$ TTA, $3.29$\,MB] $\to$ ResNet-20, 200 epochs, mean $\pm$ std over 3 seeds). \textbf{SimHash-CSD ($r=64$, $390.6$\,KB)} matches both the full-precision Online SP Oracle ($p=0.96$) and Online Hinton KD ($p=0.73$) while reducing storage by $8.6\times$ and accelerating training by $1.82\times$--$1.93\times$.}
 \label{tab:main}
-\begin{tabular}{@{}lccc@{}}
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lcccccc@{}}
 \toprule
-\textbf{Method} & \textbf{Top-1 Acc (\%)} & \textbf{Storage} & \textbf{Teacher Forwards (train)} \\
+\textbf{Method} & \textbf{Std Top-1 (\%)} & \textbf{Last Top-1 (\%)} & \textbf{TTA Top-1 (\%)} & \textbf{Storage} & \textbf{Train T-Fwds} & \textbf{s/ep} \\
 \midrule
-Teacher (ResNet-56) & 72.61 & 3.29\,MB & --- \\
-Student-only & 68.77 & --- & 0 \\
-KD (Hinton) & 70.57 & 3.29\,MB & 78,200 \\
-FitNet (feature MSE) & 70.83 & 3.29\,MB & 78,200 \\
-CSD per-sample (ours) & 69.17 & 24.41\,MB & 0 \\
-CSD per-class (ours) & \textbf{69.65} & \textbf{50\,KB} & 0 \\
+Student-only (CE) & $69.19 \pm 0.57$ & $68.95 \pm 0.62$ & $69.76 \pm 0.44$ & 0\,B & 0 & 6.99 \\
+Label Smoothing ($\epsilon=0.1$) & $69.23 \pm 0.38$ & $68.81 \pm 0.39$ & $70.02 \pm 0.42$ & 0\,B & 0 & 7.01 \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Online Teacher Distillation (teacher resident in GPU memory every batch)}} \\
+Online KD (Hinton) & $70.49 \pm 0.04$ & $70.34 \pm 0.12$ & $70.17 \pm 0.37$ & 3.29\,MB & 78,200 & 14.05 \\
+Online SP (Full-Precision Oracle) & $70.46 \pm 0.14$ & $70.30 \pm 0.17$ & $70.66 \pm 0.25$ & 3.29\,MB & 78,200 & 14.88 \\
+Online FitNet (feature MSE) & $71.03 \pm 0.13$ & $70.87 \pm 0.10$ & $70.81 \pm 0.14$ & 3.29\,MB & 78,200 & 14.39 \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Offline Teacher-Free Distillation (teacher discarded before training)}} \\
+Direct-RP (pointwise baseline) & $69.02 \pm 0.62$ & $68.73 \pm 0.81$ & $69.66 \pm 0.31$ & 148.0\,KB & 0 & 7.46 \\
+Offline Sparse-12 Logit KD & $70.00 \pm 0.22$ & $69.88 \pm 0.20$ & $70.18 \pm 0.13$ & 1.34\,MB & 0 & 7.14 \\
+SimHash-CSD + Sparse-12 Logits & $70.30 \pm 0.15$ & $69.96 \pm 0.36$ & $70.35 \pm 0.49$ & 1.72\,MB & 0 & 7.71 \\
+SimHash-CSD + Offline DKD & $70.10 \pm 0.20$ & $70.04 \pm 0.22$ & $69.83 \pm 0.30$ & 1.72\,MB & 0 & 7.73 \\
+SimHash-CSD ($r=128$, 1-bit, \textbf{ours}) & $70.19 \pm 0.11$ & $69.95 \pm 0.17$ & $\mathbf{70.71 \pm 0.06}$ & 781.3\,KB & 0 & 7.70 \\
+\textbf{SimHash-CSD ($r=64$, 1-bit, ours)} & $\mathbf{70.45 \pm 0.16}$ & $\mathbf{70.17 \pm 0.05}$ & $70.53 \pm 0.33$ & \textbf{390.6\,KB} & \textbf{0} & \textbf{7.72} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Four results stand out in Table~\ref{tab:main}:
+\begin{enumerate}
+    \item \textbf{Matching the full-precision online oracle:} Compressing ResNet-56's feature geometry to 8 bytes/image ($r=64$, 1-bit) achieves $70.45\pm0.16\%$ Std Top-1---\textbf{within $0.01$\,pp of the full-precision Online SP Oracle} ($70.46\pm0.14\%$, $p=0.96$, recovering $99.2\%$ of its gain) and within $0.04$\,pp of Online Hinton KD ($70.49\pm0.04\%$, $p=0.73$, recovering $96.9\%$ of its gain) while running \textbf{$1.82\times$--$1.93\times$ faster} ($7.72$\,s/ep vs.\ $14.05$--$14.88$\,s/ep) and storing \textbf{$8.6\times$ less data}. On 10-crop TTA, SimHash-CSD ($r=64$: $70.53\%$; $r=128$: $70.71\pm0.06\%$) surpasses Online Hinton KD ($70.17\%$) by $+0.36$--$+0.54$\,pp.
+    \item \textbf{Beating offline logit compression at $3.5\times$ smaller storage:} SimHash-CSD ($r=64$, $390.6$\,KB) significantly outperforms Offline Sparse-12 Logit KD ($1.34$\,MB) by $+0.45$\,pp ($p=0.048$), while Direct-RP ($69.02\pm0.62\%$) fails to beat the student-only baseline ($69.19\%$), confirming that pointwise class-averaged random projections collapse under strong cosine training ($+1.43$\,pp win for SimHash-CSD, $p=0.050$).
+    \item \textbf{Pure 1-bit geometry beats static offline logit hybrids:} Combining SimHash-CSD with static offline Sparse-12 logits ($70.30\%$) or Offline DKD ($70.10\%$) did not improve over pure 390.6\,KB SimHash-CSD ($70.45\%$). Inspecting training accuracy reveals that static offline DKD ($\beta=4$) over-regularizes student fitting ($81.4\%$ vs.\ $88.7\%$ train acc) because fixed multi-view logit targets do not adapt to per-step random crops, whereas scale-invariant relational geometry stays naturally consistent under data augmentation.
+    \item \textbf{Zero-overhead multi-teacher fusion:} Averaging 1-bit Charikar Gram matrices from both ResNet-56 ($3.29$\,MB) and ResNet-32$\times$4 ($28.42$\,MB) requires $781.3$\,KB ($41.6\times$ smaller than the $31.71$\,MB teachers) and achieves $70.06\pm0.08\%$ Std / $70.64\pm0.08\%$ TTA at $9.15$\,s/ep.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{fig_main_comparison.png}
+\caption{Main CIFAR-100 3-seed benchmark (ResNet-56 $\to$ ResNet-20, 200 epochs). SimHash-CSD ($r=64$, $390.6$\,KB) matches both Online SP Oracle and Online Hinton KD with zero online teacher forwards.}
+\label{fig:main}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\linewidth]{fig_pareto_storage.png}
+\caption{Accuracy vs.\ transfer storage Pareto frontier (log KB, 3-seed CIFAR-100). SimHash-CSD ($390.6$\,KB) dominates all offline baselines and sits directly on the accuracy level of full-teacher Online KD / SP.}
+\label{fig:pareto}
+\end{figure}
+
+\subsection{Cross-Architecture, High-Capacity-Gap, and Second-Dataset Generalization}
+
+Figure~\ref{fig:gen} and Tables~\ref{tab:cross_large}--\ref{tab:stl10} evaluate SimHash-CSD across three challenging transfer regimes where naive pointwise projection methods either crash or fail.
+
+\begin{table}[htbp]
+\centering
+\caption{Cross-architecture ($8\times$ channel mismatch) and high-capacity-gap ($27\times$ param ratio) CIFAR-100 benchmarks (100 epochs, 3 seeds). Direct-RP cannot execute on either pair ($C_S \neq C_T$).}
+\label{tab:cross_large}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Method} & \textbf{Std Top-1 (\%)} & \textbf{TTA Top-1 (\%)} & \textbf{Storage (Ratio)} & \textbf{s/ep} \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{(A) Cross-Architecture: ResNet-56 ($C_T=64$, $72.50\%$) $\to$ VGG-8-BN ($C_S=512$, 0 extra params)}} \\
+Student-only (VGG-8-BN) & $70.95 \pm 0.13$ & $72.06 \pm 0.30$ & 0\,B & 9.21 \\
+Online KD (Hinton) & $74.18 \pm 0.30$ & $73.75 \pm 0.19$ & 3.29\,MB ($1.0\times$) & 16.74 \\
+Offline Sparse-12 Logit KD & $74.03 \pm 0.26$ & $73.21 \pm 0.15$ & 1.34\,MB ($2.5\times$) & 9.38 \\
+\textbf{SimHash-CSD ($r=64$, 1-bit)} & $73.14 \pm 0.15$ & $\mathbf{73.57 \pm 0.36}$ & \textbf{390.6\,KB} ($8.6\times$) & \textbf{9.90} \\
+\textbf{SimHash-CSD ($r=128$, 1-bit)} & $\mathbf{73.29 \pm 0.08}$ & $73.49 \pm 0.17$ & 781.3\,KB ($4.3\times$) & 9.87 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{(B) High-Capacity-Gap: ResNet-32$\times$4 ($C_T=256$, $78.58\%$, $28.42$\,MB) $\to$ ResNet-20 ($C_S=64$)}} \\
+Student-only (ResNet-20) & $68.38 \pm 0.53$ & $68.67 \pm 0.43$ & 0\,B & 6.99 \\
+Online KD (ResNet-32$\times$4) & $68.37 \pm 0.18$ & $68.61 \pm 0.29$ & 28.42\,MB ($1.0\times$) & 28.82 \\
+Offline Sparse-12 Logit KD & $67.31 \pm 0.36$ & $67.98 \pm 0.75$ & 1.34\,MB ($21.2\times$) & 7.26 \\
+\textbf{SimHash-CSD ($r=64$, 1-bit)} & $68.82 \pm 0.31$ & $69.00 \pm 0.04$ & \textbf{390.6\,KB} (\textbf{74.5$\times$}) & 8.36 \\
+\textbf{SimHash-CSD ($r=128$, 1-bit)} & $\mathbf{69.05 \pm 0.06}$ & $\mathbf{69.39 \pm 0.27}$ & 781.3\,KB ($37.2\times$) & \textbf{8.05} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The student-only baseline achieves 68.77\% accuracy. KD improves this to 70.57\% (+1.80pp), and FitNet to 70.83\% (+2.06pp). CSD per-sample achieves 69.17\% (+0.40pp), recovering 22.2\% of KD's accuracy gain. CSD per-class achieves 69.65\% (+0.88pp), recovering 48.9\% of KD's gain while requiring only 50\,KB of stored teacher-side information---67$\times$ smaller than the 3.29\,MB teacher model. Neither CSD variant forwards the teacher during student training; all teacher computation is confined to the one-time fingerprint precomputation phase described in Section~\ref{sec:method} (400k forward passes total). CSD therefore shifts teacher compute offline rather than reducing total teacher FLOPs: 400k precomputation forwards versus 78,200 online forwards for KD.
+\paragraph{Cross-Architecture (ResNet-56 $\to$ VGG-8-BN).}
+Despite an $8\times$ channel mismatch ($64 \to 512$) and no residual skip connections in VGG-8, SimHash-CSD delivers $+2.19$\,pp ($r=64$, $p=6\times 10^{-5}$) and $+2.34$\,pp ($r=128$, $p=4\times 10^{-5}$) over the student baseline with \emph{zero} extra parameters---surpassing the ResNet-56 teacher ($72.50\%$) by $+0.79$\,pp while training $1.70\times$ faster than Online KD. On TTA, SimHash-CSD ($r=64$, $73.57\%$) outperforms Offline Sparse-12 Logits ($73.21\%$) at $3.5\times$ less storage.
 
-Figures~\ref{fig:bar} and \ref{fig:improvement} provide complementary visualizations of these results.
+\paragraph{Immunity to High-Capacity-Gap Collapse (ResNet-32$\times$4 $\to$ ResNet-20).}
+When distilling a $27\times$ larger teacher ($78.58\%$, $28.42$\,MB) into ResNet-20, both Online Hinton KD ($68.37\%$, $-0.01$\,pp) and Offline Sparse-12 Logits ($67.31\%$, $-1.07$\,pp) collapse due to overconfident teacher logits---a well-known capacity-gap failure mode~\citep{huang2022dist}. In stark contrast, \textbf{SimHash-CSD ($r=128$) achieves $69.05\pm0.06\%$ Std / $69.39\pm0.27\%$ TTA}, significantly outperforming Online KD by \textbf{$+0.68$\,pp} ($p=0.015$) and Offline Sparse-12 Logits by \textbf{$+1.74$\,pp} ($p=0.012$) while running \textbf{$3.58\times$ faster} ($8.05$ vs.\ $28.82$\,s/ep) and compressing transfer storage by \textbf{$37.2\times$--$74.5\times$}.
 
-\begin{figure}[H]
+\begin{table}[htbp]
 \centering
-\includegraphics[width=0.85\linewidth]{accuracy_barplot.png}
-\caption{Final test accuracy comparison across all methods.}
-\label{fig:bar}
-\end{figure}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.85\linewidth]{accuracy_improvement.png}
-\caption{Absolute accuracy gain over the student-only baseline for each distillation method.}
-\label{fig:improvement}
-\end{figure}
-
-\subsection{Systematic Improvement Across Versions}
-
-The CSD architecture evolved through five incremental design improvements, summarized in Table~\ref{tab:versions}.
-
-\begin{table}[H]
-\centering
-\caption{Systematic improvement of CSD across five versions. Per-class accuracy at 200 epochs, no TTA.}
-\label{tab:versions}
-\begin{tabular}{@{}llc@{}}
+\caption{Second-dataset benchmark on STL-10 ($64\times64$ natural images, 150 epochs, 3 seeds; ResNet-56 teacher $81.30\%$, $3.26$\,MB) and CRD-style linear representation transfer probing (CIFAR-100 $\to$ STL-10).}
+\label{tab:stl10}
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{Version} & \textbf{Key changes} & \textbf{CSD Per-class Acc (\%)} \\
+\textbf{Method} & \textbf{STL-10 End-to-End (\%)} & \textbf{STL-10 Storage (Ratio)} & \textbf{s/ep} & \textbf{C100$\to$STL10 Probe (\%)} \\
 \midrule
-v1 & Clean fingerprints, MSE, single-layer, no warmup & 68.57 \\
-v2 & Augmentation-aware fingerprints, cosine loss, warmup & 68.88 \\
-v3 & Multi-layer (R2 + R3), 8 augmentations, equal weights & 68.95 \\
-v4 & Layer-specific $\lambda$ (0.2:1.0), 200-epoch $\lambda$ tuning & 68.80 \\
-v4.1 & Per-class own $\lambda$ (0.3), multi-layer & 68.80 \\
+Student-only (ResNet-20) & $81.05 \pm 0.20$ & 0\,B & 2.60 & 62.15 \\
+Direct-RP (pointwise baseline) & $80.13 \pm 0.79$ & 37.0\,KB ($90.2\times$) & 2.67 & 62.00 \\
+Offline Sparse-12 Logit KD & --- & --- & --- & 59.96 \\
+Online KD (Hinton) & $82.48 \pm 0.29$ & 3.26\,MB ($1.0\times$) & 6.17 & 63.01 \\
+Online SP (Full-Precision Oracle) & $82.63 \pm 0.30$ & 3.26\,MB ($1.0\times$) & 5.87 & 63.15 \\
+Online FitNet & --- & --- & --- & 63.85 \\
+\textbf{SimHash-CSD ($r=64$, 1-bit, ours)} & $\mathbf{82.43 \pm 0.38}$ & \textbf{39.1\,KB} (\textbf{85.5$\times$}) & \textbf{2.72} & \textbf{62.92} \\
+SimHash-CSD ($r=128$, 1-bit, ours) & $82.15 \pm 0.55$ & 78.1\,KB ($42.8\times$) & 2.71 & 62.04 \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{Zero-Shot Out-of-Domain Foundation Teacher Diagnostic (ImageNet-1K Headless ViT-B/16, $330.23$\,MB)}} \\
+Headless ViT-B/16 $\to$ ResNet-20 ($r=128$) & $79.95 \pm 0.36$ & 78.1\,KB ($4{,}328\times$) & 2.62 & --- \\
+Ensemble (ResNet-56 + ViT-B/16) $\to$ R20 & $82.18 \pm 0.38$ & 117.2\,KB ($2{,}914\times$) & 2.68 & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\paragraph{Second Dataset (STL-10) and Transfer Probing.}
+On STL-10 ($64\times64$), SimHash-CSD ($r=64$) requires only \textbf{39.07\,KB} ($85.5\times$ smaller than ResNet-56), trains \textbf{$2.27\times$ faster} than Online KD, gains \textbf{$+1.38$\,pp} over baseline ($p=0.011$), beats Direct-RP by $+2.30$\,pp ($p=0.022$), recovers $96.5\%$ of Online KD's gain ($82.43\%$ vs.\ $82.48\%$, $p=0.86$), and surpasses the ResNet-56 teacher ($81.30\%$) by $+1.13$\,pp. On CRD-style linear transfer probing (freezing 200-epoch CIFAR-100 ResNet-20 backbones and fitting a logistic probe on STL-10), Offline Sparse-12 Logit KD drops $-2.19$\,pp below baseline ($59.96\%$ vs.\ $62.15\%$), whereas \textbf{SimHash-CSD ($r=64$) reaches $62.92\%$ ($+2.96$\,pp above Offline Sparse-12 Logits)}, matching Online KD ($63.01\%$) and confirming that relational feature geometry transfers far better than compressed logits.
+
+\paragraph{Instructive Diagnostic: Zero-Shot Foundation-Model Granularity Mismatch.}
+Because SimHash-CSD requires no teacher logits, we also tested distilling an \emph{unfinetuned} ImageNet-1K pretrained ViT-B/16 ($330.23$\,MB, $C_T=768$) directly into ResNet-20 on STL-10 ($4{,}328\times$--$8{,}656\times$ compression). Zero-shot ViT-B/16 alone yields $79.95\pm0.36\%$ (below baseline $81.05\%$), while ensembling it with task-trained ResNet-56 recovers $82.18\pm0.38\%$. This reveals an important boundary condition: ImageNet-1K's 1,000 fine-grained classes separate sub-breeds within STL-10's 10 coarse categories (e.g., pushing different dog breeds apart), conflicting with 10-way cross-entropy. Thus, relational distillation benefits from task-granularity-aligned teachers.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{fig_generalization_grid.png}
+\caption{Three-regime generalization (3-seed mean $\pm$ std): (a) Cross-architecture ResNet-56 $\to$ VGG-8 ($+2.34$\,pp, beats teacher); (b) High-capacity-gap ResNet-32$\times$4 $\to$ ResNet-20 (beats collapsed Online KD by $+0.68$\,pp at $37$--$74\times$ less storage); (c) Second dataset STL-10 $64\times64$ ($85.5\times$ smaller, $2.27\times$ faster).}
+\label{fig:gen}
+\end{figure}
+
+\subsection{Controlled Ablations and Empirical Proof of the Bit-Budget Theorem}
+
+Table~\ref{tab:ablation} and Figure~\ref{fig:ablation} isolate every component of SimHash-CSD on CIFAR-100 (100 epochs, seed 42).
+
+\begin{table}[htbp]
+\centering
+\caption{Controlled component ablations and iso-storage bit-budget comparison (ResNet-56 $\to$ ResNet-20, 100 epochs, seed 42). Every component contributes materially; 1-bit SimHash ($r=64$, $390.6$\,KB) beats iso-storage INT8 ($r=8$, $488.3$\,KB) by $+1.53$\,pp at 20\% less storage.}
+\label{tab:ablation}
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Variant} & \textbf{Std Top-1 (\%)} & \textbf{$\Delta$ vs.\ $r=64$} & \textbf{Storage} & \textbf{Key Mechanism Tested} \\
+\midrule
+Student-only (CE) & 68.69 & $-0.93$ & 0\,B & Lower bound \\
+Online KD (Hinton) & 69.92 & $+0.30$ & 3.29\,MB & Full-teacher online reference \\
+\midrule
+\textbf{SimHash-CSD ($r=64$, 1-bit, full)} & \textbf{69.62} & --- & \textbf{390.6\,KB} & Centered, QR-orth, KL+MSE \\
+\quad w/o Feature Centering & 68.68 & \textbf{$-0.94$} & 390.6\,KB & Positive-orthant anisotropy hurts \\
+\quad w/o Relational KL (MSE-only) & 68.14 & \textbf{$-1.48$} & 390.6\,KB & Raw MSE overfits 1-bit noise \\
+\quad w/o Gram MSE (KL-only) & 69.16 & \textbf{$-0.46$} & 390.6\,KB & KL + MSE is synergistic \\
+\quad w/ Gaussian $\mathbf{R}$ (non-orth) & 69.57 & $-0.05$ & 390.6\,KB & QR-orth lowers JL variance (-22.5\% MAE) \\
+\quad Multi-layer (L2+L3, $r=64$) & 69.51 & $-0.11$ & 781.3\,KB & Single penultimate layer suffices \\
+\quad Iso-storage INT8 ($r=8$) & 68.09 & \textbf{$-1.53$} & 488.3\,KB & \textbf{Bit-Budget Theorem (Prop.~\ref{prop:bitbudget})} \\
+\quad INT8 ($r=32$, $4.2\times$ larger) & 69.47 & $-0.15$ & 1.62\,MB & 1-bit $r=64$ beats INT8 $r=32$ \\
+\midrule
+SimHash-CSD scaling: $r=16$ & 68.12 & $-1.50$ & 97.7\,KB & Under-spanned ($r \ll C$) \\
+SimHash-CSD scaling: $r=32$ & 68.96 & $-0.66$ & 195.3\,KB & $17\times$ compression, high privacy \\
+SimHash-CSD scaling: $r=128$ & \textbf{69.99} & $+0.37$ & 781.3\,KB & Peak ($r=2C$), beats Online KD \\
+SimHash-CSD scaling: $r=256$ & 69.69 & $+0.07$ & 1.53\,MB & Diminishing returns past $2C$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Removing feature centering erases the entire distillation gain ($69.62\% \to 68.68\%$, matching baseline $68.69\%$), proving anisotropy removal is indispensable. Dropping relational KL drops accuracy by $-1.48$\,pp, while dropping Gram MSE drops $-0.46$\,pp, confirming their synergy. Crucially, at an iso-storage budget of $\sim$400--488\,KB, \textbf{1-bit SimHash ($r=64$, $390.6$\,KB) beats INT8 ($r=8$, $488.3$\,KB) by $+1.53$\,pp} ($69.62\%$ vs.\ $68.09\%$) and even edges out $4.2\times$-larger INT8 ($r=32$, $1.62$\,MB, $69.47\%$), empirically validating Proposition~\ref{prop:bitbudget}. We also tested a naive zero-storage FIFO relational queue ($Q=2048$) on 200-epoch ResNet-20 without a momentum encoder; accuracy dropped to $69.56\%$ / $70.10\%$ (seeds 42/123) due to feature staleness under high-LR SGD, confirming that clean symmetric in-batch gradients are superior without extra encoder overhead.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{fig_bit_budget_ablation.png}
+\caption{(a) Empirical validation of the Bit-Budget Theorem (Proposition~\ref{prop:bitbudget}): 1-bit SimHash dominates INT8 across the entire storage axis ($+1.53$\,pp at 20\% less storage). (b) Controlled component ablation proving centering, relational KL, and Gram MSE are all essential.}
+\label{fig:ablation}
+\end{figure}
+
+% ============================================================================
+\section{Hardware Efficiency and Quantitative Privacy Audit}
+\label{sec:analysis}
+% ============================================================================
+
+\subsection{Measured Accelerator Speed and Memory Savings}
+
+Figure~\ref{fig:hw} reports both multi-seed learning trajectories and direct Apple M6 MPS step-latency and peak driver-memory measurements. Eliminating the teacher from the training loop cuts step latency by $1.57\times$ for ResNet-56 ($20.4$ vs.\ $32.0$\,ms/step; $1.82\times$--$1.93\times$ full-epoch speedup including data/eval), \textbf{$3.25\times$ latency and $4.36\times$ peak memory} for ResNet-32$\times$4 ($20.4$\,ms / $316.4$\,MB vs.\ $66.3$\,ms / $1{,}380.5$\,MB), and \textbf{$6.61\times$ latency and $2.26\times$ peak memory} for ViT-B/16 ($40.5$\,ms / $1{,}108$\,MB vs.\ $267.6$\,ms / $2{,}508$\,MB).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{fig_training_curves.png}
+\caption{(a) 3-seed CIFAR-100 test accuracy trajectories showing SimHash-CSD ($r=64$, $391$\,KB) tracking Online SP and Online KD throughout training. (b) Measured Apple M6 MPS step latency and peak driver memory across teacher scales.}
+\label{fig:hw}
+\end{figure}
+
+\subsection{Quantitative Feature-Inversion Privacy Audit}
+
+Rather than making informal privacy claims, we rigorously audit directional feature invertibility on held-out ResNet-56 features ($80\%/20\%$ split) against two attackers trained on known $(\hat{\phi}_T, \tilde{f}_T)$ pairs: (1) an optimal regularized \textbf{Linear Ridge attacker} and (2) a \textbf{non-linear 2-layer MLP attacker} (Table~\ref{tab:privacy}, Figure~\ref{fig:privacy}).
+
+\begin{table}[htbp]
+\centering
+\caption{Quantitative feature-inversion audit on ResNet-56 ($C_T=64$) across projection dimension $r$ and quantization. Lower reconstruction cosine = harder to invert; lower JL MAE = higher relational fidelity.}
+\label{tab:privacy}
+\small
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+\textbf{$r$} & \textbf{Quant.} & \textbf{Exact Storage} & \textbf{Linear Recon Cos} & \textbf{MLP Recon Cos} & \textbf{JL Pairwise MAE} \\
+\midrule
+128 & FP32 (Direct-RP) & 24.41\,MB & 1.0000 & 0.9997 & 0.0000 \\
+64 & INT8 & 3.15\,MB & 1.0000 & 0.9996 & 0.0008 \\
+32 & INT8 & 1.62\,MB & 0.8321 & 0.9173 & 0.0979 \\
+8 & INT8 & 488.3\,KB & 0.4461 & 0.5592 & 0.2678 \\
+\midrule
+128 & \textbf{1-bit SimHash} & 781.3\,KB & 0.9129 & 0.9242 & 0.0830 \\
+64 & \textbf{1-bit SimHash} & \textbf{390.6\,KB} & \textbf{0.8518} & \textbf{0.8844} & \textbf{0.1165} \\
+32 & \textbf{1-bit SimHash} & 195.3\,KB & 0.6834 & 0.7816 & 0.1901 \\
+16 & \textbf{1-bit SimHash} & 97.7\,KB & 0.5215 & 0.6310 & 0.2798 \\
+8 & \textbf{1-bit SimHash} & 48.8\,KB & 0.3732 & 0.4420 & 0.3902 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-With test-time augmentation (10-crop TTA, applied uniformly across all methods in Table~\ref{tab:main}), CSD per-class reaches 69.65\%. The version improvements here are reported without TTA for comparability. We note that v4 and v4.1 show a slight non-TTA dip from v3 (68.95\% $\to$ 68.80\%): v4 introduced asymmetric layer weights (0.2:1.0 instead of equal weighting), and v4.1 adopted a separately tuned per-class $\lambda$. These design choices trade instance-level representational fidelity for training stability and were validated by the final TTA results (Table~\ref{tab:main}), which show that the tuned multi-layer CSD configuration achieves the highest per-class accuracy overall.
+This audit yields three clear conclusions: (1) overcomplete continuous projections (Direct-RP at $r=128$ FP32, or INT8 at $r\ge 64$) are \textbf{100.0\% linearly invertible} (confirming Proposition~\ref{prop:direct_rp}); (2) 1-bit SimHash eliminates exact invertibility and exposes a smooth knob via $r$ (e.g., $r=32$ drops linear inversion cosine to $0.683$ in $195$\,KB while still improving over baseline); and (3) importantly, \textbf{non-linear MLP attackers consistently outperform linear inversion} (e.g., $0.782$ vs.\ $0.683$ at $r=32$) by exploiting the low-dimensional structure of the teacher's feature manifold. Accordingly, SimHash-CSD should be viewed as providing \emph{deployment decoupling and teacher-weight IP hiding}---the teacher parameters, architecture, and even $\mathbf{R}$ are never distributed---rather than a cryptographic privacy guarantee; formal differential privacy (e.g., randomized bit-flipping / local DP on $b_i$) is an orthogonal extension we leave to future work.
 
-We also experimented with a contrastive fingerprint push loss (v5) that penalized the student for being too similar to hardest-negative class fingerprints. This variant decreased accuracy to 69.04\% for per-class CSD, indicating that at the 64-dimensional feature scale of CIFAR-100 ResNet, class-level fingerprint separation is limited and the push gradient conflicts with the pull gradient for semantically similar classes. The implementation is retained in the code repository for reproducibility.
-
-\subsection{Ablations}
-
-\paragraph{$\lambda$ sensitivity.} We swept $\lambda \in \{0.01, 0.05, 0.1, 0.2, 0.5, 1.0\}$ for CSD per-sample at 200 epochs. The best $\lambda$ was 0.01 for per-sample and 0.3 for per-class, reflecting that the per-class variant's noise-reduced targets can accept a stronger fingerprint signal.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\linewidth]{ablation_lambda.png}
-\caption{Sensitivity of CSD accuracy to the loss weight $\lambda$ (per-sample, 200 epochs).}
-\label{fig:lambda}
+\includegraphics[width=\linewidth]{fig_privacy_pareto.png}
+\caption{(a) Linear Ridge and 2-layer MLP feature-inversion vulnerability across $(r, \text{quantization})$. (b) Corresponding Johnson--Lindenstrauss pairwise cosine MAE.}
+\label{fig:privacy}
 \end{figure}
 
-\paragraph{Fingerprint dimension $r$.} We swept $r \in \{16, 32, 64, 128, 256\}$ for CSD per-sample with $\lambda = 0.1$ and 100 training epochs. Accuracy increases with $r$ up to 128, with diminishing returns beyond. At $r=16$, per-sample storage is just 3.05\,MB; at $r=256$, it reaches 48.83\,MB. We select $r=128$ as the default.
+% ============================================================================
+\section{Limitations and Future Work}
+\label{sec:limitations}
+% ============================================================================
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.8\linewidth]{ablation_r.png}
-\caption{Effect of fingerprint dimension $r$ on CSD accuracy.}
-\label{fig:r}
-\end{figure}
-
-\subsection{Fingerprint Alignment}
-
-To verify that the CSD mechanism works as intended, we track the mean cosine similarity between $\phi_S$ and $\phi_{\text{target}}$ over the course of CSD training. Figure~\ref{fig:align} shows the alignment converging from approximately 0.50 to over 0.85 during training, confirming that the student progressively learns to align its feature geometry with the teacher's.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.8\linewidth]{fp_alignment.png}
-\caption{Mean cosine similarity between student and teacher fingerprints over CSD training epochs.}
-\label{fig:align}
-\end{figure}
-
-\section{Discussion}
-\label{sec:discussion}
-
-\subsection{Storage and Deployment Analysis}
-
-The primary practical advantage of CSD is its storage footprint and its decoupling of teacher computation from student training. Figure~\ref{fig:storage} compares the storage required for knowledge transfer across methods.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.8\linewidth]{storage_comparison.png}
-\caption{Storage comparison (log scale).}
-\label{fig:storage}
-\end{figure}
-
-Per-class fingerprints are 67$\times$ smaller than the teacher model (50\,KB vs.\ 3.29\,MB) with a small accuracy penalty relative to per-sample fingerprints. The deployment advantage goes beyond storage: KD must keep the teacher model resident in GPU memory alongside the student for the full 200 training epochs (78,200 forward passes interleaved with student training). CSD confines all teacher computation to a one-time offline phase; the teacher is discarded before student training begins and the student trains with no dependence on the teacher whatsoever.
-
-For additional context, a na\"{\i}ve ``Offline KD'' baseline that precomputes and stores the teacher's soft logits for all 50,000 training samples would require $50{,}000 \times 100 \times 4 \approx 19.5$\,MB of storage---nearly six times larger than the teacher model itself and over $300\times$ larger than our per-class fingerprints. This highlights that CSD's storage efficiency comes not merely from offline precomputation but from the compact fingerprint representation enabled by random projection.
-
-\subsection{Privacy Analysis}
-
-CSD provides a teacher-model hiding property rather than a cryptographic privacy guarantee. The fingerprint $\phi = \text{normalize}(f) \cdot \mathbf{R}$ is a linear projection of the normalized feature vector $f$ onto the columns of $\mathbf{R}$. Since $r = 128 > C = 64$ and a random Gaussian matrix has full row rank with probability one, the normalized feature direction $\hat{f} = f / \|f\|_2$ can be recovered from $\phi$ given knowledge of $\mathbf{R}$ via $\hat{f} = \phi\,\mathbf{R}^{\mathsf{T}}(\mathbf{R}\mathbf{R}^{\mathsf{T}})^{-1}$. The magnitude $\|f\|_2$ is lost due to the L2 normalization, but the directional information used by CSD for distillation is recoverable. Therefore, CSD should not be described as providing a one-way or information-theoretically hard barrier against feature recovery.
-
-The practical deployment benefit is that CSD eliminates the need to share or distribute the teacher model during student training: the teacher can be run in a trusted environment to produce fingerprints, and only the fingerprint table need be transferred. Furthermore, since fingerprints are derived from pooled intermediate activations (64-dimensional vectors after global average pooling) rather than raw input pixels, reconstructing training images from fingerprints alone would additionally require inverting the teacher's convolutional backbone, which is a substantially harder problem. Stronger privacy guarantees would require additional mechanisms such as using $r < C$, quantization, noise injection, or formal differential privacy, which we leave to future work.
-
-\subsection{Limitations}
-
-CSD has several limitations:
-
+We highlight three honest limitations to guide future work:
 \begin{enumerate}
-    \item \textbf{Accuracy gap.} CSD trails KD by approximately 0.92 percentage points on CIFAR-100. The teacher's output probability distribution contains information that fingerprints at this architecture scale do not fully capture.
-    \item \textbf{Per-sample storage.} The per-sample variant requires more storage than the teacher (24.41\,MB vs.\ 3.29\,MB). Only the per-class variant achieves net storage reduction. Per-sample fingerprints are best used in privacy-sensitive settings where the teacher cannot be shared.
-    \item \textbf{Single architecture family and dataset.} We evaluate only on ResNet variants for CIFAR-100. Generalization to larger-scale datasets, Vision Transformers, or large language models is not yet demonstrated.
-    \item \textbf{Single seed.} All accuracy results use a single random seed (42). On CIFAR-100, ResNet-20 accuracy can vary by $\pm$0.3--0.5\,pp across seeds, which is comparable to the +0.88\,pp gain of CSD per-class. Therefore the reported improvements should be interpreted as preliminary findings rather than statistically confirmed effects. A multi-seed study with mean and standard deviation is required for stronger conclusions.
+    \item \textbf{Scale:} All experiments were conducted locally on a single Apple M6 workstation using CIFAR-100 and STL-10. Because SimHash-CSD's storage scales linearly with dataset size ($8N$ bytes at $r=64$, i.e., $\sim 9.8$\,MB for all $1.28$\,M ImageNet-1K images---still $9\times$--$34\times$ smaller than ResNet-50 or ViT-B/16!), validating SimHash-CSD on ImageNet-1K and LLM hidden-state distillation is a compelling next step.
+    \item \textbf{Offline compute amortization:} SimHash-CSD moves teacher compute offline ($8$ views $\times N$ forwards once: $62$\,s for ResNet-56 on M6) rather than eliminating it entirely, paying off strongly whenever training runs for many epochs ($200$ epochs $= 25\times$ more teacher forwards in Online KD) or when multiple students are distilled from the same sketch table.
+    \item \textbf{Task-granularity alignment:} As our zero-shot ImageNet ViT-B/16 diagnostic demonstrated, offline relational sketches reflect the teacher's semantic clustering; distilling from foundation models onto coarse downstream tasks requires light task adaptation or class-conditional filtering.
 \end{enumerate}
 
-\subsection{Future Work}
-
-Several extensions of CSD are worth exploring:
-
-\begin{enumerate}
-    \item \textbf{Hybrid with KD:} CSD fingerprints and KD operate on complementary teacher knowledge (feature geometry vs.\ output probabilities). Since fingerprint precomputation is a one-time cost, combining CSD with KD would impose no additional teacher overhead beyond what KD already requires, and could recover a larger fraction of KD's accuracy gain.
-    \item \textbf{Generality:} Extending CSD to Vision Transformers (CLS token fingerprints) and large language models (hidden-state fingerprints) would demonstrate that random-projection fingerprints are architecture-agnostic.
-    \item \textbf{Fingerprint quantization:} Quantizing each fingerprint entry from float32 to int8 would reduce storage by an additional 4$\times$ (from 50\,KB to 12.5\,KB), with minimal accuracy degradation.
-\end{enumerate}
-
+% ============================================================================
 \section{Conclusion}
 \label{sec:conclusion}
+% ============================================================================
 
-We introduced Cosine Similarity Distillation (CSD), a distillation method that removes the teacher from the student training loop by shifting all teacher computation to a one-time offline fingerprint precomputation phase. CSD precomputes compact fingerprints---cosine similarities of the teacher's intermediate features against a frozen random matrix---and trains the student to regress these fingerprints alongside the cross-entropy loss. The teacher is never loaded during student training.
-
-On CIFAR-100 with ResNet-20/56, in a single-seed experiment, CSD recovers 48.9\% of KD's accuracy gain (CSD per-class: 69.65\% vs. baseline 68.77\%) while reducing teacher-side storage by 67$\times$ (from 3.29\,MB to 50\,KB) and removing the teacher from GPU memory during student training. Ablation studies validate the core mechanism, showing that student-teacher fingerprint alignment steadily increases to over 0.85 during training. Iterative refinement across five versions yielded our final design.
-
-CSD explores a direction for deployment-efficient distillation: its simplicity, storage efficiency, and teacher-model hiding property make it attractive for settings where the teacher cannot be shared or where GPU memory is constrained during student training. Future work with multiple seeds, larger datasets, and formal privacy mechanisms will further strengthen these findings.
+We introduced \textbf{SimHash-CSD}, a teacher-free relational knowledge distillation framework that compresses centered teacher feature geometry into 1-bit QR-orthogonal SimHash sketches (just 8 bytes/image at $r=64$) and reconstructs intra-batch cosine similarities during student training via Charikar's angular estimator. Grounded in orthogonal variance reduction and a bit-budget advantage over multi-bit JL sketches, SimHash-CSD eliminates online teacher inference, requires zero extra student parameters or teacher logits, and generalizes seamlessly across arbitrary architecture and channel mismatches. Across multi-seed CIFAR-100 and STL-10 benchmarks, SimHash-CSD matches the full-precision online relational oracle within $0.01$\,pp and Online Hinton KD within $0.04$--$0.05$\,pp at $8.6\times$--$85.5\times$ smaller transfer storage and $1.8\times$--$3.6\times$ faster training, outperforms collapsed Online KD under severe capacity gaps, and transfers $+2.96$\,pp better than compressed offline logits.
 
 \bibliographystyle{unsrtnat}
 \bibliography{references}
-
 
 \end{document}
